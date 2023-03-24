@@ -4,6 +4,12 @@ A Python API which interacts with Ruckus Unleashed and ZoneDirector devices.
 
 Compatible with all Ruckus Unleashed versions, and Ruckus ZoneDirector versions 9.10 onwards.
 
+## How to install
+
+```bash
+pip install aioruckus
+```
+
 ## Usage
 
 Functions are defined within an [async](https://docs.python.org/3/library/asyncio.html) [context manager](https://docs.python.org/3/reference/datamodel.html#context-managers), so you will have to create an event loop instead of calling the functions directly in a shell.
