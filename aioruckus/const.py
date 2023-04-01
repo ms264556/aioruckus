@@ -14,9 +14,10 @@ VALUE_ERROR_INVALID_PASSPHRASE_JS = "Embedding html or javascript code, e.g. < /
 
 class SystemStat(Enum):
     ALL = ""
-    DEFAULT = "<identity/><sysinfo/><port/>"
+    DEFAULT = "<identity/><sysinfo/><port/><unleashed-network/>"
     IDENTITY = "<identity/>"
     SYSINFO = "<sysinfo/>"
     PORT = "<port/>"
     ADMIN = "<admin/>"
     MESH_POLICY = "<mesh-policy/>"
+    UNLEASHED_NETWORK = "<unleashed-network/>"
