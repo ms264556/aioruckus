@@ -11,7 +11,8 @@ LOGIN_ERROR_LOGIN_INCORRECT = "Login incorrect"
 VALUE_ERROR_INVALID_MAC = "Invalid MAC"
 VALUE_ERROR_INVALID_PASSPHRASE_LEN = "Passphrase can only contain between 8 and 63 characters or 64 HEX characters, space is not allowed"
 VALUE_ERROR_INVALID_PASSPHRASE_JS = "Embedding html or javascript code, e.g. < />, is not allowed"
-
+VALUE_ERROR_INVALID_PASSPHRASE_MISSING = "WPA2 and Mixed WPA2/3 WLANs require a passphrase"
+VALUE_ERROR_INVALID_SAEPASSPHRASE_MISSING = "WPA3 and Mixed WPA2/3 WLANs require an SAE passphrase"
 
 class SystemStat(Enum):
     ALL = ""
@@ -26,3 +27,11 @@ class SystemStat(Enum):
     SYSINFO = "<sysinfo/>"
     TIME = "<time/>"
     UNLEASHED_NETWORK = "<unleashed-network/>"
+
+
+class WlanEncryption(Enum):
+    NONE = "none"
+    OWE = "owe"
+    WPA2 = "wpa2"
+    WPA23_MIXED = "wpa23-mixed"
+    WPA3 = "wpa3"

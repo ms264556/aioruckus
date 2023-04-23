@@ -1,5 +1,5 @@
 from re import IGNORECASE, match
-from typing import List
+from typing import Any, List, Literal
 from warnings import warn
 import xml.etree.ElementTree as ET
 import xml.sax.saxutils as saxutils
@@ -9,9 +9,12 @@ import xmltodict
 from .const import (
     VALUE_ERROR_INVALID_MAC,
     VALUE_ERROR_INVALID_PASSPHRASE_LEN,
-    VALUE_ERROR_INVALID_PASSPHRASE_JS
+    VALUE_ERROR_INVALID_PASSPHRASE_JS,
+    VALUE_ERROR_INVALID_PASSPHRASE_MISSING,
+    VALUE_ERROR_INVALID_SAEPASSPHRASE_MISSING
 )
 from .const import SystemStat as SystemStat
+from .const import WlanEncryption as WlanEncryption
 from .ajaxsession import AjaxSession
 
 
@@ -78,32 +81,45 @@ class RuckusApi:
         remaining = ''.join((f"<deny mac='{deny['mac']}' type='single'/>" for deny in blocked if deny["mac"] != mac))
         await self._conf_noparse(f"<ajax-request action='updobj' comp='acl-list' updater='blocked-clients'><acl id='1' name='System' description='System' default-mode='allow' EDITABLE='false'>{remaining}</acl></ajax-request>")
 
-    async def do_disable_wlan(self, ssid: str, disable_wlan: bool = True) -> None:
-        wlan = await self._find_wlan_by_ssid(ssid)
+    async def do_disable_wlan(self, name: str, disable_wlan: bool = True) -> None:
+        wlan = await self._find_wlan_by_name(name)
         if wlan:
-            await self._conf_noparse(f"<ajax-request action='updobj' updater='wlansvc-list.0.5' comp='wlansvc-list'><wlansvc id='{wlan['id']}' enable-type='{1 if disable_wlan else 0}' IS_PARTIAL='true'/></ajax-request>")
+            await self._conf_noparse(f"<ajax-request action='updobj' updater='wlansvc-list.0.5' comp='wlansvc-list'><wlansvc id='{wlan['id']}' name='{wlan['name']}' enable-type='{1 if disable_wlan else 0}' IS_PARTIAL='true'/></ajax-request>")
 
-    async def do_enable_wlan(self, ssid: str) -> None:
-        await self.do_disable_wlan(ssid, False)
+    async def do_enable_wlan(self, name: str) -> None:
+        await self.do_disable_wlan(name, False)
 
-    async def do_set_wlan_password(self, ssid: str, password: str, sae_password: str = None) -> None:
-        # IS_PARTIAL prepopulates all subelements, so that any wpa element we provide would result in 2 wpa elements.
-        # So we have to do what the web UI does: grab the wlan definition, make our changes, then post the entire thing back.
-        password = self._validate_passphrase(password)
-        sae_password = self._validate_passphrase(sae_password or password)
-        xml = await self._conf_noparse("<ajax-request action='getconf' DECRYPT_X='true' updater='wlansvc-list.0.5' comp='wlansvc-list'/>")
-        root = ET.fromstring(xml)
-        wlansvc = root.find(".//wlansvc[@ssid='%s']" % saxutils.escape(ssid))
+    async def do_set_wlan_password(self, name: str, passphrase: str, sae_passphrase: str = None) -> None:
+        sae_passphrase = sae_passphrase or passphrase
+        await self.do_update_wlan(name, {"wpa": {"passphrase": passphrase, "sae-passphrase": sae_passphrase}}, True)
+
+    async def do_add_wlan(self, name: str, encryption: WlanEncryption = WlanEncryption.WPA2, passphrase: str = None, sae_passphrase: str = None, ssid_override: str = None, ignore_unknown_attributes: bool = False) -> None:
+        patch = {"name": name, "ssid": ssid_override or name, "encryption": encryption.value}
+        if passphrase is not None or sae_passphrase is not None:
+            patch_wpa = {}
+            patch["wpa"] = patch_wpa
+            if passphrase is not None:
+                patch_wpa["passphrase"] = passphrase
+            if sae_passphrase is not None:
+                patch_wpa["sae-passphrase"] = sae_passphrase
+        await self.do_add_wlan_from_template(patch)
+
+    async def do_add_wlan_from_template(self, template: dict) -> None:
+        wlansvc = await self._get_default_wlan_template()
+        self._normalize_encryption(wlansvc, template)
+        self._patch_template(wlansvc, template, True)
+        await self._add_wlan_template(wlansvc)
+
+    async def do_update_wlan(self, name: str, patch: dict, ignore_unknown_attributes: bool = False) -> None:
+        wlansvc = await self._get_wlan_template(name)
         if wlansvc:
-            wpa = wlansvc.find("wpa")
-            if wpa.get("passphrase") is not None:
-                wpa.set("passphrase", password)
-                wpa.set("x-passphrase", password)
-            if wpa.get("sae-passphrase") is not None:
-                wpa.set("sae-passphrase", sae_password)
-                wpa.set("x-sae-passphrase", sae_password)
-            xml_bytes = ET.tostring(wlansvc)
-            await self.conf(f"<ajax-request action='updobj' updater='wlan' comp='wlansvc-list'>{xml_bytes.decode('utf-8')}</ajax-request>")
+            self._normalize_encryption(wlansvc, patch)
+            self._patch_template(wlansvc, patch, ignore_unknown_attributes)
+            await self._update_wlan_template(wlansvc)
+
+    async def do_delete_wlan(self, name: str) -> None:
+        wlan = await self._find_wlan_by_name(name)
+        await self.conf(f"<ajax-request action='delobj' updater='wlansvc-list.0.5' comp='wlansvc-list'><wlansvc id='{wlan['id']}'/></ajax-request>", timeout=20)
 
     async def do_hide_ap_leds(self, mac: str, leds_off: bool = True) -> None:
         mac = self._normalize_mac(mac)
@@ -118,29 +134,104 @@ class RuckusApi:
         mac = self._normalize_mac(mac)
         return await self._cmdstat_noparse(f"<ajax-request action='docmd' xcmd='reset' checkAbility='2' updater='stamgr.0.5' comp='stamgr'><xcmd cmd='reset' ap='{mac}' tag='ap' checkAbility='2'/></ajax-request>")
 
+    async def _get_default_wlan_template(self) -> ET.Element:
+        xml = await self._conf_noparse("<ajax-request action='getconf' DECRYPT_X='true' updater='wlansvc-standard-template.0.5' comp='wlansvc-standard-template'/>")
+        root = ET.fromstring(xml)
+        wlansvc = root.find(".//wlansvc")
+        return wlansvc
+
+    async def _get_wlan_template(self, name: str) -> ET.Element | None:
+        xml = await self._conf_noparse("<ajax-request action='getconf' DECRYPT_X='true' updater='wlansvc-list.0.5' comp='wlansvc-list'/>")
+        root = ET.fromstring(xml)
+        wlansvc = root.find(f".//wlansvc[@name='{saxutils.escape(name)}']")
+        return wlansvc
+
+    def _normalize_encryption(self, wlansvc: ET.Element, patch: dict):
+        patch_wpa = patch["wpa"] if "wpa" in patch else None
+        if patch_wpa is not None:
+            if "passphrase" in patch_wpa:
+                self._validate_passphrase(patch_wpa["passphrase"])
+            if "sae-passphrase" in patch_wpa:
+                self._validate_passphrase(patch_wpa["sae-passphrase"])
+
+        encryption = wlansvc.get("encryption")
+        if "encryption" in patch and patch["encryption"] != encryption:
+            new_encryption = patch["encryption"]
+            wlansvc.set("encryption", new_encryption)
+
+            wpa = wlansvc.find("wpa")
+            new_wpa = {"cipher": "aes", "dynamic-psk": "disabled"}
+
+            if new_encryption == WlanEncryption.WPA2.value or new_encryption == WlanEncryption.WPA23_MIXED.value:
+                passphrase = wpa.get("passphrase") if wpa is not None else None
+                if (patch_wpa is None or "passphrase" not in patch_wpa) and passphrase is None:
+                    raise ValueError(VALUE_ERROR_INVALID_PASSPHRASE_MISSING)
+                new_wpa["passphrase"] = passphrase or "<passphrase>"
+            if new_encryption == WlanEncryption.WPA3.value or new_encryption == WlanEncryption.WPA23_MIXED.value:
+                sae_passphrase = wpa.get("sae-passphrase") if wpa is not None else None
+                if (patch_wpa is None or "sae-passphrase" not in patch_wpa) and sae_passphrase is None:
+                    raise ValueError(VALUE_ERROR_INVALID_SAEPASSPHRASE_MISSING)
+                new_wpa["sae-passphrase"] = sae_passphrase or "<passphrase>"
+
+            if wpa is not None:
+                wlansvc.remove(wpa)
+            if new_encryption != WlanEncryption.NONE.value:
+                wpa = ET.SubElement(wlansvc, "wpa", new_wpa)
+
+    def _patch_template(self, element: ET.Element, patch: dict, ignore_unknown_attributes: bool = False, current_path: str = ""):
+        visited_children = set()
+        for child in element:
+            if child.tag in patch and isinstance(patch[child.tag], dict):
+                self._patch_template(child, patch[child.tag], ignore_unknown_attributes, f"{current_path}/{child.tag}")
+                visited_children.add(child.tag)
+        for name, value in patch.items():
+            if name in visited_children:
+                pass
+            else:
+                current_value = element.get(name)
+                if isinstance(value, List):
+                    raise ValueError(f"Applying lists is unsupported: {current_path}/{name}")
+                elif current_value is None:
+                    if not ignore_unknown_attributes:
+                        raise ValueError(f"Unknown attribute: {current_path}/{name}")
+                else:
+                    new_value = self._normalize_conf_value(current_value, value)
+                    element.set(name, new_value)
+                    x_name = f"x-{name}"
+                    if x_name not in patch and x_name in element.attrib:
+                        element.set(x_name, new_value)
+
+    async def _update_wlan_template(self, wlansvc: ET.Element):
+        xml_bytes = ET.tostring(wlansvc)
+        await self.conf(f"<ajax-request action='updobj' updater='wlan' comp='wlansvc-list'>{xml_bytes.decode('utf-8')}</ajax-request>", timeout=20)
+
+    async def _add_wlan_template(self, wlansvc: ET.Element):
+        xml_bytes = ET.tostring(wlansvc)
+        await self.conf(f"<ajax-request action='addobj' updater='wlansvc-list' comp='wlansvc-list'>{xml_bytes.decode('utf-8')}</ajax-request>", timeout=20)
+
     async def _find_ap_by_mac(self, mac: str) -> dict:
         return next((ap for ap in await self.get_aps() if ap["mac"] == mac), None)
 
-    async def _find_wlan_by_ssid(self, ssid: str) -> dict:
-        return next((wlan for wlan in await self.get_wlans() if wlan["ssid"] == ssid), None)
-    
+    async def _find_wlan_by_name(self, name: str) -> dict:
+        return next((wlan for wlan in await self.get_wlans() if wlan["name"] == name), None)
+
     async def _get_timestamp_at_controller(self) -> int:
         timeinfo = await self.cmdstat("<ajax-request action='getstat' updater='system.0.5' comp='system'><time/></ajax-request>")
         return int(timeinfo["response"]["time"]["time"])
 
-    async def cmdstat(self, data: str, collection_elements: List[str] = None) -> dict | List:
-        result_text = await self._cmdstat_noparse(data)
+    async def cmdstat(self, data: str, collection_elements: List[str] = None, timeout: int | None = None) -> dict | List:
+        result_text = await self._cmdstat_noparse(data, timeout)
         return self._ajaxunwrap(result_text, collection_elements)
 
-    async def _cmdstat_noparse(self, data: str) -> str:
-        return await self.auth.request(self.auth.cmdstat_url, data)
+    async def _cmdstat_noparse(self, data: str, timeout: int | None = None) -> str:
+        return await self.auth.request(self.auth.cmdstat_url, data, timeout)
 
-    async def conf(self, data: str, collection_elements: List[str] = None) -> dict | List:
-        result_text = await self._conf_noparse(data)
+    async def conf(self, data: str, collection_elements: List[str] = None, timeout: int | None = None) -> dict | List:
+        result_text = await self._conf_noparse(data, timeout)
         return self._ajaxunwrap(result_text, collection_elements)
 
-    async def _conf_noparse(self, data: str) -> str:
-        return await self.auth.request(self.auth.conf_url, data)
+    async def _conf_noparse(self, data: str, timeout: int | None = None) -> str:
+        return await self.auth.request(self.auth.conf_url, data, timeout)
 
     @staticmethod
     def _ajaxunwrap(xml: str, collection_elements: List[str] = None) -> dict | List:
@@ -155,11 +246,13 @@ class RuckusApi:
 
     @staticmethod
     def _process_ruckus_ajax_xml(path, key, value):
-        if key.startswith("x-"):  # passphrases are obfuscated and stored with an x- prefix; decrypt these
+        # passphrases are obfuscated and stored with an x- prefix; decrypt these
+        if key.startswith("x-"):
             return key[2:], ''.join(chr(ord(letter) - 1) for letter in value) if value else value
         elif key == "apstamgr-stat" and not value:  # return an empty array rather than None, for ease of use
             return key, []
-        elif key == "status" and value and value.isnumeric() and path and len(path) > 0 and path[-1][0] == "client":  # client status is numeric code for active, and name for inactive. Show name for everything
+        # client status is numeric code for active, and name for inactive. Show name for everything
+        elif key == "status" and value and value.isnumeric() and path and len(path) > 0 and path[-1][0] == "client":
             description = "Authorized" if value == "1" else "Authenticating" if value == "2" else "PSK Expired" if value == "3" else "Authorized(Deny)" if value == "4" else "Authorized(Permit)" if value == "5" else "Unauthorized"
             return key, description
         else:
@@ -178,3 +271,26 @@ class RuckusApi:
         if passphrase and match(r"(^[!-~]([ -~]){6,61}[!-~]$)|(^([0-9a-fA-F]){64}$)", string=passphrase):
             return passphrase
         raise ValueError(VALUE_ERROR_INVALID_PASSPHRASE_LEN)
+
+    @staticmethod
+    def _normalize_conf_value(current_value: str, new_value: Any) -> str:
+        current_value_lowered = current_value.lower()
+        if current_value_lowered in ("enable", "disable", "enabled", "disabled", "true", "false", "yes", "no", "1", "0"):
+            if isinstance(new_value, str):
+                new_value_lowered = new_value.lower()
+                new_value = True if new_value_lowered in ("enable", "enabled", "true", "yes", "1") else False if new_value_lowered in ("disable", "disabled", "false", "no", "0") else new_value
+            elif isinstance(new_value, (int, float)) and not isinstance(new_value, bool):
+                new_value = True if new_value == 1 else False if new_value == 0 else new_value
+
+            if isinstance(new_value, bool):
+                if current_value_lowered in ("enable", "disable"):
+                    new_value = "enable" if new_value else "disable"
+                elif current_value_lowered in ("enabled", "disabled"):
+                    new_value = "enabled" if new_value else "disabled"
+                elif current_value_lowered in ("yes", "no"):
+                    new_value = "yes" if new_value else "no"
+                elif current_value_lowered in ("true", "false"):
+                    new_value = "true" if new_value else "false"
+                elif current_value_lowered in ("1", "0"):
+                    new_value = "1" if new_value else "0"
+        return new_value

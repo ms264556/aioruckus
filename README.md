@@ -43,6 +43,16 @@ async def test_aioruckus():
 
         await ruckus.do_set_wlan_password("my ssid", "blah>blah<")
 
+        await ruckus.do_add_wlan("my new sid", passphrase="mypassphrase" )
+        await ruckus.do_update_wlan("my new sid", {"ofdm-rate-only": True})
+
+        template_wlan = next((wlan for wlan in wlans if wlan["name"] =="my ssid"), None)
+        template_wlan["name"] = "my newer sid"
+        template_wlan["ssid"] = "my newer sid"
+        await ruckus.do_add_wlan_from_template(new_wlan)
+
+        await ruckus.do_delete_wlan("my newer sid")
+
         await ruckus.do_hide_ap_leds("24:79:de:ad:be:ef")
         await ruckus.do_show_ap_leds("24:79:de:ad:be:ef")
         

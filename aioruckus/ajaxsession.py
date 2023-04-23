@@ -106,14 +106,14 @@ class AjaxSession:
             if self.__auto_cleanup_websession:
                 await self.websession.close()
 
-    async def request(self, cmd: str, data: str, retrying: bool = False) -> str:
+    async def request(self, cmd: str, data: str, timeout: int | None = None, retrying: bool = False) -> str:
         """Request data"""
-        async with self.websession.post(cmd, data=data, headers={"Content-Type": "text/xml"}, allow_redirects=False) as response:
+        async with self.websession.post(cmd, data=data, headers={"Content-Type": "text/xml"}, timeout=timeout, allow_redirects=False) as response:
             if response.status == 302:  # if the session is dead then we're redirected to the login page
                 if retrying:  # we tried logging in again, but the redirect still happens - maybe password changed?
                     raise PermissionError(AJAX_POST_REDIRECTED_ERROR)
                 await self.login()  # try logging in again, then retry post
-                return await self.request(cmd, data, retrying=True)
+                return await self.request(cmd, data, timeout, retrying=True)
             result_text = await response.text()
             if not result_text or result_text == "\n":  # if the ajax request payload wasn't understood then we get an empty page back
                 raise RuntimeError(AJAX_POST_NORESULT_ERROR)
