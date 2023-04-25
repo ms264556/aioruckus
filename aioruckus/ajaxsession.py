@@ -54,7 +54,7 @@ class AjaxSession:
             async with self.websession.head(f"https://{self.host}", timeout=3, allow_redirects=False) as head:
                 self.__login_url = head.headers["Location"]
                 self.base_url, login_page = self.__login_url.rsplit("/", 1)
-                if login_page == "index.html": # maybe temporary Unleashed Rebuilding placeholder page is showing
+                if login_page == "index.html" or login_page == "wizard.jsp": # Unleashed Rebuilding or Setup Wizard
                     raise ConnectionRefusedError(CONNECT_ERROR_TEMPORARY)
                 self.cmdstat_url = self.base_url + "/_cmdstat.jsp"
                 self.conf_url = self.base_url + "/_conf.jsp"

@@ -138,6 +138,22 @@ class RuckusApi:
         xml = await self._conf_noparse("<ajax-request action='getconf' DECRYPT_X='true' updater='wlansvc-standard-template.0.5' comp='wlansvc-standard-template'/>")
         root = ET.fromstring(xml)
         wlansvc = root.find(".//wlansvc")
+        if wlansvc is not None:
+            return wlansvc
+        else:
+            return self._get_default_zd9_wlan_template()
+
+    @staticmethod
+    def _get_default_zd9_wlan_template() -> ET.Element:
+        wlansvc = ET.Element("wlansvc", {"name": "default-standard-wlan", "ssid": "", "authentication": "open", "encryption": "none",
+                                         "is-guest": "false", "max-clients-per-radio": "100", "do-802-11d": "disabled", "sta-info-extraction": "1",
+                                         "force-dhcp": "0", "force-dhcp-timeout": "10", "usage": "user", "policy-id": "", "policy6-id": "",
+                                         "precedence-id": "1", "devicepolicy-id": "", "role-based-access-ctrl": "false", "acl-id": "1", "local-bridge": "1",
+                                         "client-isolation": "disabled", "ci-whitelist-id": "0", "bgscan": "1", "idle-timeout": "1", "max-idle-timeout": "300",
+                                         "dis-dgaf": "0", "authstats": "0", "https-redirection": "disabled"})
+        ET.SubElement(wlansvc, "qos", {"uplink-preset": "DISABLE", "downlink-preset": "DISABLE"})
+        ET.SubElement(wlansvc, "queue-priority", {"voice": "0", "video": "2", "data": "4", "background": "6"})
+        ET.SubElement(wlansvc, "wlan-schedule", {"value": "0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0: 0x0:0x0:0x0:0x0:0x0:0x0"})
         return wlansvc
 
     async def _get_wlan_template(self, name: str) -> ET.Element | None:
