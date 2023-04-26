@@ -79,19 +79,19 @@ class RuckusApi:
         mac = self._normalize_mac(mac)
         blocked = await self.get_blocked_client_macs()
         remaining = ''.join((f"<deny mac='{deny['mac']}' type='single'/>" for deny in blocked if deny["mac"] != mac))
-        await self._conf_noparse(f"<ajax-request action='updobj' comp='acl-list' updater='blocked-clients'><acl id='1' name='System' description='System' default-mode='allow' EDITABLE='false'>{remaining}</acl></ajax-request>")
+        await self._do_conf(f"<ajax-request action='updobj' comp='acl-list' updater='blocked-clients'><acl id='1' name='System' description='System' default-mode='allow' EDITABLE='false'>{remaining}</acl></ajax-request>")
 
     async def do_disable_wlan(self, name: str, disable_wlan: bool = True) -> None:
         wlan = await self._find_wlan_by_name(name)
         if wlan:
-            await self._conf_noparse(f"<ajax-request action='updobj' updater='wlansvc-list.0.5' comp='wlansvc-list'><wlansvc id='{wlan['id']}' name='{wlan['name']}' enable-type='{1 if disable_wlan else 0}' IS_PARTIAL='true'/></ajax-request>")
+            await self._do_conf(f"<ajax-request action='updobj' updater='wlansvc-list.0.5' comp='wlansvc-list'><wlansvc id='{wlan['id']}' name='{wlan['name']}' enable-type='{1 if disable_wlan else 0}' IS_PARTIAL='true'/></ajax-request>")
 
     async def do_enable_wlan(self, name: str) -> None:
         await self.do_disable_wlan(name, False)
 
     async def do_set_wlan_password(self, name: str, passphrase: str, sae_passphrase: str = None) -> None:
         sae_passphrase = sae_passphrase or passphrase
-        await self.do_update_wlan(name, {"wpa": {"passphrase": passphrase, "sae-passphrase": sae_passphrase}}, True)
+        await self.do_edit_wlan(name, {"wpa": {"passphrase": passphrase, "sae-passphrase": sae_passphrase}}, True)
 
     async def do_add_wlan(self, name: str, encryption: WlanEncryption = WlanEncryption.WPA2, passphrase: str = None, sae_passphrase: str = None, ssid_override: str = None, ignore_unknown_attributes: bool = False) -> None:
         patch = {"name": name, "ssid": ssid_override or name, "encryption": encryption.value}
@@ -102,30 +102,48 @@ class RuckusApi:
                 patch_wpa["passphrase"] = passphrase
             if sae_passphrase is not None:
                 patch_wpa["sae-passphrase"] = sae_passphrase
-        await self.do_add_wlan_from_template(patch)
+        await self.do_clone_wlan(patch)
 
-    async def do_add_wlan_from_template(self, template: dict) -> None:
+    async def do_clone_wlan(self, template: dict) -> None:
         wlansvc = await self._get_default_wlan_template()
         self._normalize_encryption(wlansvc, template)
         self._patch_template(wlansvc, template, True)
         await self._add_wlan_template(wlansvc)
 
-    async def do_update_wlan(self, name: str, patch: dict, ignore_unknown_attributes: bool = False) -> None:
+    async def do_edit_wlan(self, name: str, patch: dict, ignore_unknown_attributes: bool = False) -> None:
         wlansvc = await self._get_wlan_template(name)
         if wlansvc:
             self._normalize_encryption(wlansvc, patch)
             self._patch_template(wlansvc, patch, ignore_unknown_attributes)
             await self._update_wlan_template(wlansvc)
 
-    async def do_delete_wlan(self, name: str) -> None:
+    async def do_delete_wlan(self, name: str) -> bool:
         wlan = await self._find_wlan_by_name(name)
-        await self.conf(f"<ajax-request action='delobj' updater='wlansvc-list.0.5' comp='wlansvc-list'><wlansvc id='{wlan['id']}'/></ajax-request>", timeout=20)
+        if wlan is None:
+            return False
+        else:
+            await self._do_conf(f"<ajax-request action='delobj' updater='wlansvc-list.0.5' comp='wlansvc-list'><wlansvc id='{wlan['id']}'/></ajax-request>", timeout=20)
+            return True
+
+    async def do_add_wlan_group(self, name: str, description: str = "", wlans: List = None) -> None:
+        wlangroup = ET.Element("wlangroup", {"name": name, "description": description or ""})
+        if wlans is not None:
+            for wlansvc in wlans:
+                ET.SubElement(wlangroup, "wlansvc", {"id": wlansvc["id"]})
+        await self._do_conf(f"<ajax-request action='addobj' comp='wlangroup-list' updater='wgroup'>{ET.tostring(wlangroup).decode('utf-8')}</ajax-request>")
+
+    async def do_clone_wlan_group(self, template: dict, name: str, description: str = None) -> None:
+        wlangroup = ET.Element("wlangroup", {"name": name, "description": description or (template["description"] if "description" in template else "")})
+        if "wlan" in template:
+            for wlansvc in template["wlan"]:
+                ET.SubElement(wlangroup, "wlansvc", {"id": wlansvc["id"]})
+        await self._do_conf(f"<ajax-request action='addobj' comp='wlangroup-list' updater='wgroup'>{ET.tostring(wlangroup).decode('utf-8')}</ajax-request>")
 
     async def do_hide_ap_leds(self, mac: str, leds_off: bool = True) -> None:
         mac = self._normalize_mac(mac)
         ap = await self._find_ap_by_mac(mac)
         if ap:
-            await self._conf_noparse(f"<ajax-request action='updobj' updater='ap-list.0.5' comp='ap-list'><ap id='{ap['id']}' IS_PARTIAL='true' led-off='{str(leds_off).lower()}' /></ajax-request>")
+            await self._do_conf(f"<ajax-request action='updobj' updater='ap-list.0.5' comp='ap-list'><ap id='{ap['id']}' IS_PARTIAL='true' led-off='{str(leds_off).lower()}' /></ajax-request>")
 
     async def do_show_ap_leds(self, mac: str) -> None:
         await self.do_hide_ap_leds(mac, False)
@@ -141,10 +159,10 @@ class RuckusApi:
         if wlansvc is not None:
             return wlansvc
         else:
-            return self._get_default_zd9_wlan_template()
+            return self._get_default_cli_wlan_template()
 
     @staticmethod
-    def _get_default_zd9_wlan_template() -> ET.Element:
+    def _get_default_cli_wlan_template() -> ET.Element:
         wlansvc = ET.Element("wlansvc", {"name": "default-standard-wlan", "ssid": "", "authentication": "open", "encryption": "none",
                                          "is-guest": "false", "max-clients-per-radio": "100", "do-802-11d": "disabled", "sta-info-extraction": "1",
                                          "force-dhcp": "0", "force-dhcp-timeout": "10", "usage": "user", "policy-id": "", "policy6-id": "",
@@ -219,11 +237,11 @@ class RuckusApi:
 
     async def _update_wlan_template(self, wlansvc: ET.Element):
         xml_bytes = ET.tostring(wlansvc)
-        await self.conf(f"<ajax-request action='updobj' updater='wlan' comp='wlansvc-list'>{xml_bytes.decode('utf-8')}</ajax-request>", timeout=20)
+        await self._do_conf(f"<ajax-request action='updobj' updater='wlan' comp='wlansvc-list'>{xml_bytes.decode('utf-8')}</ajax-request>", timeout=20)
 
     async def _add_wlan_template(self, wlansvc: ET.Element):
         xml_bytes = ET.tostring(wlansvc)
-        await self.conf(f"<ajax-request action='addobj' updater='wlansvc-list' comp='wlansvc-list'>{xml_bytes.decode('utf-8')}</ajax-request>", timeout=20)
+        await self._do_conf(f"<ajax-request action='addobj' updater='wlansvc-list' comp='wlansvc-list'>{xml_bytes.decode('utf-8')}</ajax-request>", timeout=20)
 
     async def _find_ap_by_mac(self, mac: str) -> dict:
         return next((ap for ap in await self.get_aps() if ap["mac"] == mac), None)
@@ -235,19 +253,24 @@ class RuckusApi:
         timeinfo = await self.cmdstat("<ajax-request action='getstat' updater='system.0.5' comp='system'><time/></ajax-request>")
         return int(timeinfo["response"]["time"]["time"])
 
+    async def _cmdstat_noparse(self, data: str, timeout: int | None = None) -> str:
+        return await self.auth.request(self.auth.cmdstat_url, data, timeout)
+
     async def cmdstat(self, data: str, collection_elements: List[str] = None, timeout: int | None = None) -> dict | List:
         result_text = await self._cmdstat_noparse(data, timeout)
         return self._ajaxunwrap(result_text, collection_elements)
 
-    async def _cmdstat_noparse(self, data: str, timeout: int | None = None) -> str:
-        return await self.auth.request(self.auth.cmdstat_url, data, timeout)
+    async def _conf_noparse(self, data: str, timeout: int | None = None) -> str:
+        return await self.auth.request(self.auth.conf_url, data, timeout)
 
     async def conf(self, data: str, collection_elements: List[str] = None, timeout: int | None = None) -> dict | List:
         result_text = await self._conf_noparse(data, timeout)
         return self._ajaxunwrap(result_text, collection_elements)
 
-    async def _conf_noparse(self, data: str, timeout: int | None = None) -> str:
-        return await self.auth.request(self.auth.conf_url, data, timeout)
+    async def _do_conf(self, data: str, collection_elements: List[str] = None, timeout: int | None = None) -> None:
+        result = await self.conf(data, collection_elements, timeout)
+        if "xmsg" in result:
+            raise ValueError(result["xmsg"]["lmsg"])
 
     @staticmethod
     def _ajaxunwrap(xml: str, collection_elements: List[str] = None) -> dict | List:
@@ -300,7 +323,7 @@ class RuckusApi:
 
             if isinstance(new_value, bool):
                 if current_value_lowered in ("enable", "disable"):
-                    new_value = "enable" if new_value else "disable"
+                    new_value = "ENABLE" if new_value else "DISABLE"
                 elif current_value_lowered in ("enabled", "disabled"):
                     new_value = "enabled" if new_value else "disabled"
                 elif current_value_lowered in ("yes", "no"):

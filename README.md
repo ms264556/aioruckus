@@ -43,13 +43,19 @@ async def test_aioruckus():
 
         await ruckus.do_set_wlan_password("my ssid", "blah>blah<")
 
+        await ruckus.do_add_wlan_group("new empty wlangroup", "empty group added by aioruckus")
+        await ruckus.do_add_wlan_group("new full wlangroup", "group added by aioruckus", wlans)
+
+        wlan_group_template = next((wlang for wlang in wlan_groups if wlang["name"] == "Default"), None)
+        await ruckus.do_clone_wlan_group(wlan_group_template, "Copy of Default")
+
         await ruckus.do_add_wlan("my new sid", passphrase="mypassphrase" )
-        await ruckus.do_update_wlan("my new sid", {"ofdm-rate-only": True})
+        await ruckus.do_edit_wlan("my new sid", {"ofdm-rate-only": True})
 
         template_wlan = next((wlan for wlan in wlans if wlan["name"] == "my ssid"), None)
         template_wlan["name"] = "my newer sid"
         template_wlan["ssid"] = "my newer sid"
-        await ruckus.do_add_wlan_from_template(template_wlan)
+        await ruckus.do_clone_wlan(template_wlan)
 
         await ruckus.do_delete_wlan("my newer sid")
 
@@ -57,7 +63,6 @@ async def test_aioruckus():
         await ruckus.do_show_ap_leds("24:79:de:ad:be:ef")
         
         await ruckus.do_restart_ap("24:79:de:ad:be:ef")
-
 
 asyncio.run(test_aioruckus())
 ```
