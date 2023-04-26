@@ -11,7 +11,8 @@ from .const import (
     VALUE_ERROR_INVALID_PASSPHRASE_LEN,
     VALUE_ERROR_INVALID_PASSPHRASE_JS,
     VALUE_ERROR_INVALID_PASSPHRASE_MISSING,
-    VALUE_ERROR_INVALID_SAEPASSPHRASE_MISSING
+    VALUE_ERROR_INVALID_SAEPASSPHRASE_MISSING,
+    VALUE_ERROR_WLAN_SSID_SETTING_REQUIRES_NAME
 )
 from .const import SystemStat as SystemStat
 from .const import WlanEncryption as WlanEncryption
@@ -104,10 +105,14 @@ class RuckusApi:
                 patch_wpa["sae-passphrase"] = sae_passphrase
         await self.do_clone_wlan(patch)
 
-    async def do_clone_wlan(self, template: dict) -> None:
+    async def do_clone_wlan(self, template: dict, new_name: str = None, new_ssid: str = None) -> None:
         wlansvc = await self._get_default_wlan_template()
         self._normalize_encryption(wlansvc, template)
         self._patch_template(wlansvc, template, True)
+        if new_name is not None or new_ssid is not None:
+            if new_name is None:
+                raise ValueError(VALUE_ERROR_WLAN_SSID_SETTING_REQUIRES_NAME)
+            self._patch_template(wlansvc, {"name": new_name, "ssid": new_ssid or new_name })
         await self._add_wlan_template(wlansvc)
 
     async def do_edit_wlan(self, name: str, patch: dict, ignore_unknown_attributes: bool = False) -> None:

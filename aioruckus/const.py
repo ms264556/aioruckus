@@ -13,6 +13,7 @@ VALUE_ERROR_INVALID_PASSPHRASE_LEN = "Passphrase can only contain between 8 and 
 VALUE_ERROR_INVALID_PASSPHRASE_JS = "Embedding html or javascript code, e.g. < />, is not allowed"
 VALUE_ERROR_INVALID_PASSPHRASE_MISSING = "WPA2 and Mixed WPA2/3 WLANs require a passphrase"
 VALUE_ERROR_INVALID_SAEPASSPHRASE_MISSING = "WPA3 and Mixed WPA2/3 WLANs require an SAE passphrase"
+VALUE_ERROR_WLAN_SSID_SETTING_REQUIRES_NAME = "You must also provide a name if you wish to override the passphrase"
 
 class SystemStat(Enum):
     ALL = ""
