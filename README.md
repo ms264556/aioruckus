@@ -24,14 +24,14 @@ async def test_aioruckus():
         ruckus = session.api
 
         wlans = await ruckus.get_wlans()
-        wlan_groups = await ruckus.get_wlan_groups()
+        wlan_groups = await ruckus.get_wlan_groups() # WLAN Groups are CLI-only on Unleashed
         aps = await ruckus.get_aps()
         ap_groups = await ruckus.get_ap_groups()
         mesh = await ruckus.get_mesh_info()
         default_system_info = await ruckus.get_system_info()
         all_system_info = await ruckus.get_system_info(SystemStat.ALL)
         active_clients = await ruckus.get_active_clients()
-        inactive_clients = await ruckus.get_inactive_clients() # empty on Unleashed
+        inactive_clients = await ruckus.get_inactive_clients() # always empty on Unleashed
         blocked = await ruckus.get_blocked_client_macs()
         syslog = await ruckus.get_syslog()
 
