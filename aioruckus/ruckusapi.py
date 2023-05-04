@@ -12,6 +12,7 @@ from .const import (
     VALUE_ERROR_INVALID_PASSPHRASE_JS,
     VALUE_ERROR_INVALID_PASSPHRASE_MISSING,
     VALUE_ERROR_INVALID_SAEPASSPHRASE_MISSING,
+    VALUE_ERROR_INVALID_WLAN,
     VALUE_ERROR_WLAN_SSID_SETTING_REQUIRES_NAME
 )
 from .const import SystemStat as SystemStat
@@ -133,16 +134,35 @@ class RuckusApi:
     async def do_add_wlan_group(self, name: str, description: str = "", wlans: List = None) -> None:
         wlangroup = ET.Element("wlangroup", {"name": name, "description": description or ""})
         if wlans is not None:
+            wlan_map = {wlan["name"]:wlan["id"] for wlan in await self.get_wlans()}
             for wlansvc in wlans:
-                ET.SubElement(wlangroup, "wlansvc", {"id": wlansvc["id"]})
+                wlan_name = None
+                if isinstance(wlansvc, str):
+                    if wlansvc in wlan_map:
+                        wlan_name = wlansvc
+                elif isinstance(wlansvc, dict):
+                    if "name" in wlansvc and wlansvc["name"] in wlan_map:
+                        wlan_name = wlansvc["name"]
+                if wlan_name is None:
+                    raise ValueError(VALUE_ERROR_INVALID_WLAN)
+                ET.SubElement(wlangroup, "wlansvc", {"id": wlan_map[wlan_name]})
         await self._do_conf(f"<ajax-request action='addobj' comp='wlangroup-list' updater='wgroup'>{ET.tostring(wlangroup).decode('utf-8')}</ajax-request>")
 
     async def do_clone_wlan_group(self, template: dict, name: str, description: str = None) -> None:
         wlangroup = ET.Element("wlangroup", {"name": name, "description": description or (template["description"] if "description" in template else "")})
         if "wlan" in template:
+            wlan_map = {wlan["name"]:wlan["id"] for wlan in await self.get_wlans()}
             for wlansvc in template["wlan"]:
-                ET.SubElement(wlangroup, "wlansvc", {"id": wlansvc["id"]})
+                ET.SubElement(wlangroup, "wlansvc", {"id": wlan_map[wlansvc["name"]]})
         await self._do_conf(f"<ajax-request action='addobj' comp='wlangroup-list' updater='wgroup'>{ET.tostring(wlangroup).decode('utf-8')}</ajax-request>")
+
+    async def do_delete_wlan_group(self, name: str) -> bool:
+        wlang = await self._find_wlan_group_by_name(name)
+        if wlang is None:
+            return False
+        else:
+            await self._do_conf(f"<ajax-request action='delobj' updater='wlangroup-list.0.5' comp='wlangroup-list'><wlangroup id='{wlang['id']}'/></ajax-request>")
+            return True
 
     async def do_hide_ap_leds(self, mac: str, leds_off: bool = True) -> None:
         mac = self._normalize_mac(mac)
@@ -253,6 +273,9 @@ class RuckusApi:
 
     async def _find_wlan_by_name(self, name: str) -> dict:
         return next((wlan for wlan in await self.get_wlans() if wlan["name"] == name), None)
+
+    async def _find_wlan_group_by_name(self, name: str) -> dict:
+        return next((wlang for wlang in await self.get_wlan_groups() if wlang["name"] == name), None)
 
     async def _get_timestamp_at_controller(self) -> int:
         timeinfo = await self.cmdstat("<ajax-request action='getstat' updater='system.0.5' comp='system'><time/></ajax-request>")

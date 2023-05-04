@@ -49,6 +49,8 @@ async def test_aioruckus():
         wlan_group_template = next((wlang for wlang in wlan_groups if wlang["name"] == "Default"), None)
         await ruckus.do_clone_wlan_group(wlan_group_template, "Copy of Default")
 
+        await ruckus.do_delete_wlan_group("Copy of Default")
+
         await ruckus.do_add_wlan("my new sid", passphrase="mypassphrase" )
         await ruckus.do_edit_wlan("my new sid", {"ofdm-rate-only": True})
 
