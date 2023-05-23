@@ -41,6 +41,6 @@ async def test_ap_info():
         assert ap["model"]
         assert ap["devname"]
         assert ap["gateway"]
-        assert ap["channel-11ng"]
-        assert ap["channelization-11ng"]
+        assert ap["radio"][0]["channel"]
+        assert ap["radio"][0]["channelization"]
         
