@@ -17,18 +17,18 @@ VALUE_ERROR_INVALID_SAEPASSPHRASE_MISSING = "WPA3 and Mixed WPA2/3 WLANs require
 VALUE_ERROR_WLAN_SSID_SETTING_REQUIRES_NAME = "You must also provide a name if you wish to override the passphrase"
 
 class SystemStat(Enum):
-    ALL = ""
-    ADMIN = "<admin/>"
-    CLUSTER = "<cluster/>"
-    DEFAULT = "<identity/><sysinfo/><port/><unleashed-network/>"
-    IDENTITY = "<identity/>"
-    MESH_POLICY = "<mesh-policy/>"
-    MGMT_IP = "<mgmt-ip/>"
-    MGMT_VLAN = "<mgmt-vlan/>"
-    PORT = "<port/>"
-    SYSINFO = "<sysinfo/>"
-    TIME = "<time/>"
-    UNLEASHED_NETWORK = "<unleashed-network/>"
+    ALL = []
+    ADMIN = ["admin"]
+    CLUSTER = ["cluster"]
+    DEFAULT = ["identity", "sysinfo", "port", "unleashed-network"]
+    IDENTITY = ["identity"]
+    MESH_POLICY = ["mesh-policy"]
+    MGMT_IP = ["mgmt-ip"]
+    MGMT_VLAN = ["mgmt-vlan"]
+    PORT = ["port"]
+    SYSINFO = ["sysinfo"]
+    TIME = ["time"]
+    UNLEASHED_NETWORK = ["unleashed-network"]
 
 
 class WlanEncryption(Enum):

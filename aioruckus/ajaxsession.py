@@ -4,6 +4,8 @@ from typing import Any
 
 import aiohttp
 import xmltodict
+
+from .abcsession import AbcSession, ConfigItem
 from .exceptions import AuthenticationError
 
 from .const import (
@@ -16,7 +18,7 @@ from .const import (
 )
 
 
-class AjaxSession:
+class AjaxSession(AbcSession):
     """Connect to Ruckus Unleashed or ZoneDirector via HTTPS AJAX"""
 
     def __init__(
@@ -27,13 +29,13 @@ class AjaxSession:
         password: str,
         auto_cleanup_websession=False,
     ) -> None:
+        super().__init__()
+
         self.websession = websession
         self.host = host
         self.username = username
         self.password = password
         self.__auto_cleanup_websession = auto_cleanup_websession
-
-        self.__api = None
 
         self.__login_url = None
         self.base_url = None
@@ -122,11 +124,11 @@ class AjaxSession:
     @property
     def api(self):
         """Return a RuckusApi instance."""
-        if not self.__api:
+        if not self._api:
             # pylint: disable=import-outside-toplevel
-            from .ruckusapi import RuckusApi
-            self.__api = RuckusApi(self)
-        return self.__api
+            from .ruckusajaxapi import RuckusAjaxApi
+            self._api = RuckusAjaxApi(self)
+        return self._api
 
     @classmethod
     def async_create(cls, host: str, username: str, password: str) -> "AjaxSession":
@@ -143,3 +145,6 @@ class AjaxSession:
             connector=aiohttp.TCPConnector(keepalive_timeout=5, ssl_context=context),
         )
         return AjaxSession(websession, host, username, password, auto_cleanup_websession=True)
+
+    async def get_conf_str(self, item: ConfigItem, timeout: int | None = None) -> str:
+        return await self.request(self.conf_url, f"<ajax-request action='getconf' DECRYPT_X='true' updater='{item.value}.0.5' comp='{item.value}'/>", timeout)

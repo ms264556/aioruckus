@@ -1,6 +1,7 @@
 # aioruckus
 
-A Python API which interacts with Ruckus Unleashed and ZoneDirector devices via their AJAX Web Service interface.
+A Python API which interacts with Ruckus Unleashed and ZoneDirector devices via their AJAX Web Service interface.  
+Configuration information can also be queried from Ruckus Unleashed and ZoneDirector backup files.
 
 Compatible with all Ruckus Unleashed versions, and Ruckus ZoneDirector versions 9.10 onwards.
 
@@ -20,19 +21,34 @@ import asyncio
 
 async def test_aioruckus():
     
+    with BackupSession.create("<ruckus backup filename>") as session:
+        ruckus = session.api
+
+        aps = await ruckus.get_aps()
+        ap_groups = await ruckus.get_ap_groups()
+        wlans = await ruckus.get_wlans()
+        wlan_groups = await ruckus.get_wlan_groups()
+        blocked = await ruckus.get_blocked_client_macs()
+        mesh = await ruckus.get_mesh_info()
+        all_system_info = await ruckus.get_system_info(SystemStat.ALL)
+
     async with AjaxSession.async_create("<ruckus ip>", "<ruckus user>", "<ruckus password>") as session:
         ruckus = session.api
 
-        wlans = await ruckus.get_wlans()
-        wlan_groups = await ruckus.get_wlan_groups() # WLAN Groups are CLI-only on Unleashed
         aps = await ruckus.get_aps()
         ap_groups = await ruckus.get_ap_groups()
+        wlans = await ruckus.get_wlans()
+        wlan_groups = await ruckus.get_wlan_groups() # WLAN Groups are CLI-only on Unleashed
+        blocked = await ruckus.get_blocked_client_macs()
         mesh = await ruckus.get_mesh_info()
         default_system_info = await ruckus.get_system_info()
         all_system_info = await ruckus.get_system_info(SystemStat.ALL)
+
+        ap_group_stats = await ruckus.get_ap_group_stats()
+        wlan_group_stats = await ruckus.get_wlan_group_stats()
+
         active_clients = await ruckus.get_active_clients()
         inactive_clients = await ruckus.get_inactive_clients() # always empty on Unleashed
-        blocked = await ruckus.get_blocked_client_macs()
         syslog = await ruckus.get_syslog()
 
         await ruckus.do_block_client("60:ab:de:ad:be:ef")
