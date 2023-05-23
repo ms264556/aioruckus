@@ -30,7 +30,6 @@ class SystemStat(Enum):
     TIME = ["time"]
     UNLEASHED_NETWORK = ["unleashed-network"]
 
-
 class WlanEncryption(Enum):
     NONE = "none"
     OWE = "owe"

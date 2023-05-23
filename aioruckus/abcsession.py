@@ -1,5 +1,9 @@
 from abc import ABC, abstractmethod
 from enum import Enum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .ruckusapi import RuckusApi
 
 class ConfigItem(Enum):
     WLANSVC_LIST = "wlansvc-list"
@@ -20,7 +24,7 @@ class AbcSession(ABC):
         self._api = None
 
     @property
-    def api(self):
+    def api(self) -> "RuckusApi":
         """Return a RuckusApi instance."""
         if not self._api:
             # pylint: disable=import-outside-toplevel

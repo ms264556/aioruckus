@@ -1,6 +1,9 @@
 import asyncio
 import ssl
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .ruckusajaxapi import RuckusAjaxApi
 
 import aiohttp
 import xmltodict
@@ -122,7 +125,7 @@ class AjaxSession(AbcSession):
             return result_text
 
     @property
-    def api(self):
+    def api(self) -> "RuckusAjaxApi":
         """Return a RuckusApi instance."""
         if not self._api:
             # pylint: disable=import-outside-toplevel
