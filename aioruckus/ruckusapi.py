@@ -17,10 +17,20 @@ class RuckusApi(ABC):
 
     async def get_ap_groups(self) -> List:
         ap_map = {ap['id']: ap for ap in await self.get_aps()}
-        ap_groups = await self._get_conf(ConfigItem.APGROUP_LIST, ["apgroup", "radio", "model", "port", "ap"])
+        wlang_map = {wlang['id']: wlang for wlang in await self.get_wlan_groups()}
+        ap_groups = await self._get_conf(ConfigItem.APGROUP_LIST, ["apgroup", "radio", "model", "port", "ap", "wlansvc"])
         for ap_group in ap_groups:
-            if ap_group["members"] is not None and ap_group["members"]["ap"] is not None:
-                ap_group["members"]["ap"] = [deepcopy(ap_map[ap["id"]])  for ap in ap_group["members"]["ap"]]
+            if "members" not in ap_group or ap_group["members"] is None or "ap" not in ap_group["members"] or ap_group["members"]["ap"] is None:
+                ap_group["ap"] = []
+            else:
+                ap_group["ap"] = [deepcopy(ap_map[ap["id"]]) for ap in ap_group["members"]["ap"]]
+            ap_group.pop("members", None)
+            if "wlangroup" in ap_group:
+                if ap_group["wlangroup"] is None or "wlansvc" not in ap_group["wlangroup"] or ap_group["wlangroup"]["wlansvc"] is None:
+                    ap_group["wlansvc"] = []
+                else:
+                    ap_group["wlansvc"] = [deepcopy(wlang_map[wlang["id"]])  for wlang in ap_group["wlangroup"]["wlansvc"]]
+                del ap_group["wlangroup"]
         return ap_groups
 
     async def get_wlans(self) -> List[dict]:

@@ -7,9 +7,11 @@ if TYPE_CHECKING:
 
 class ConfigItem(Enum):
     WLANSVC_LIST = "wlansvc-list"
+    WLANSVC_STANDARD_TEMPLATE = "wlansvc-standard-template"
     WLANGROUP_LIST = "wlangroup-list"
     AP_LIST = "ap-list"
     APGROUP_LIST = "apgroup-list"
+    APGROUP_TEMPLATE = "apgroup-template"
     MESH_LIST = "mesh-list"
     ZTMESHSERIAL_LIST = "ztmeshSerial-list"
     ACL_LIST = "acl-list"

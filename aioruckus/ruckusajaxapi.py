@@ -162,8 +162,13 @@ class RuckusAjaxApi(RuckusApi):
         mac = self._normalize_mac(mac)
         return await self._cmdstat_noparse(f"<ajax-request action='docmd' xcmd='reset' checkAbility='2' updater='stamgr.0.5' comp='stamgr'><xcmd cmd='reset' ap='{mac}' tag='ap' checkAbility='2'/></ajax-request>")
 
+    async def _get_default_apgroup_template(self) -> ET.Element:
+        xml = await self.session.get_conf_str(ConfigItem.APGROUP_TEMPLATE)
+        root = ET.fromstring(xml)
+        return root.find(".//apgroup")
+
     async def _get_default_wlan_template(self) -> ET.Element:
-        xml = await self._conf_noparse("<ajax-request action='getconf' DECRYPT_X='true' updater='wlansvc-standard-template.0.5' comp='wlansvc-standard-template'/>")
+        xml = await self.session.get_conf_str(ConfigItem.WLANSVC_STANDARD_TEMPLATE)
         root = ET.fromstring(xml)
         wlansvc = root.find(".//wlansvc")
         if wlansvc is not None:
