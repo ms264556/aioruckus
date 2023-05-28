@@ -16,7 +16,7 @@ pip install aioruckus
 Functions are defined within an [async](https://docs.python.org/3/library/asyncio.html) [context manager](https://docs.python.org/3/reference/datamodel.html#context-managers), so you will have to use [asyncio](https://docs.python.org/3/library/asyncio.html) rather than calling the functions directly in a shell.
 
 ```python
-from aioruckus import AjaxSession, SystemStat
+from aioruckus import AjaxSession, BackupSession, SystemStat
 import asyncio
 
 async def test_aioruckus():
