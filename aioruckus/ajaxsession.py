@@ -136,16 +136,18 @@ class AjaxSession(AbcSession):
     @classmethod
     def async_create(cls, host: str, username: str, password: str) -> "AjaxSession":
         """Create a default ClientSession & use this to create an AjaxSession instance"""
-        # create ssl context so we ignore cert errors
-        context = ssl.create_default_context()
-        context.set_ciphers("DEFAULT")
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        # make ClientSession using ssl the above SSLContext, allowing cookies on IP address URLs, and with short keepalive for compatibility with old Unleashed versions
+        
+        # create SSLContext which ignores certificate errors
+        ssl_context = ssl.create_default_context()
+        ssl_context.set_ciphers("DEFAULT")
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        
+        # create ClientSession using our SSLContext, allowing cookies on IP address URLs, with a short keepalive for compatibility with old Unleashed versions
         websession = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=10),
             cookie_jar=aiohttp.CookieJar(unsafe=True),
-            connector=aiohttp.TCPConnector(keepalive_timeout=5, ssl_context=context),
+            connector=aiohttp.TCPConnector(keepalive_timeout=5, ssl_context=ssl_context),
         )
         return AjaxSession(websession, host, username, password, auto_cleanup_websession=True)
 

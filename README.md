@@ -44,7 +44,9 @@ async def test_aioruckus():
         default_system_info = await ruckus.get_system_info()
         all_system_info = await ruckus.get_system_info(SystemStat.ALL)
 
+        ap_stats = await ruckus.get_ap_stats()
         ap_group_stats = await ruckus.get_ap_group_stats()
+        vap_stats = await ruckus.get_vap_stats()
         wlan_group_stats = await ruckus.get_wlan_group_stats()
 
         active_clients = await ruckus.get_active_clients()
@@ -84,7 +86,7 @@ asyncio.run(test_aioruckus())
 
 ### Other Python APIs for Ruckus Unleashed
 
-This project was originally a fork of [pyuckus](https://github.com/gabe565/pyruckus), which provides similar query functionality by controlling an SSH CLI session.
+This project was originally a fork of [pyruckus](https://github.com/gabe565/pyruckus), which provides similar query functionality by controlling an SSH CLI session.
 
 There is also [scrapli](https://github.com/carlmontanari/scrapli) support for the Ruckus Unleashed SSH CLI via [scrapli community](https://github.com/scrapli/scrapli_community).  
 Authentication and privilege levels are implemented, but no templates are implemented as of April 2023.
