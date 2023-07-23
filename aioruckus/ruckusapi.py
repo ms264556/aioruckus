@@ -26,7 +26,11 @@ class RuckusApi(ABC):
             ConfigItem.APGROUP_LIST, ["apgroup", "radio", "model", "port", "ap", "wlansvc"]
         )
         for ap_group in ap_groups:
-            if "members" not in ap_group or ap_group["members"] is None or "ap" not in ap_group["members"] or ap_group["members"]["ap"] is None:
+            # replace ap links with ap objects
+            if (
+                "members" not in ap_group or ap_group["members"] is None or
+                "ap" not in ap_group["members"] or ap_group["members"]["ap"] is None
+            ):
                 ap_group["ap"] = []
             else:
                 ap_group["ap"] = [
@@ -34,8 +38,12 @@ class RuckusApi(ABC):
                     for ap in ap_group["members"]["ap"]
                 ]
             ap_group.pop("members", None)
+            # replace Unleashed wlangroup links with wlangroup objects
             if "wlangroup" in ap_group:
-                if ap_group["wlangroup"] is None or "wlansvc" not in ap_group["wlangroup"] or ap_group["wlangroup"]["wlansvc"] is None:
+                if (
+                    ap_group["wlangroup"] is None or "wlansvc" not in ap_group["wlangroup"] or
+                    ap_group["wlangroup"]["wlansvc"] is None
+                ):
                     ap_group["wlansvc"] = []
                 else:
                     ap_group["wlansvc"] = [
@@ -43,6 +51,18 @@ class RuckusApi(ABC):
                         for wlang in ap_group["wlangroup"]["wlansvc"]
                     ]
                 del ap_group["wlangroup"]
+            # replace ZoneDirector wlangroup links with wlangroup objects
+            if (
+                "ap-property" in ap_group and ap_group["ap-property"] is not None and
+                "radio" in ap_group["ap-property"] and ap_group["ap-property"]["radio"] is not None
+            ):
+                for radio in  ap_group["ap-property"]["radio"]:
+                    if "wlangroup-id" in radio:
+                        if radio["wlangroup-id"] in wlang_map:
+                            # wlangroup-id will be '*' if we're inheriting from System Default
+                            radio["wlangroup"] = deepcopy(wlang_map[radio["wlangroup-id"]])
+                        del radio["wlangroup-id"]
+
         return ap_groups
 
     async def get_wlans(self) -> List[dict]:
