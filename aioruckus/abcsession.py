@@ -1,3 +1,5 @@
+"""Ruckus Session"""
+
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -6,6 +8,7 @@ if TYPE_CHECKING:
     from .ruckusapi import RuckusApi
 
 class ConfigItem(Enum):
+    """Ruckus configuration keys"""
     WLANSVC_LIST = "wlansvc-list"
     WLANSVC_STANDARD_TEMPLATE = "wlansvc-standard-template"
     WLANGROUP_LIST = "wlangroup-list"
@@ -19,7 +22,6 @@ class ConfigItem(Enum):
 
 class AbcSession(ABC):
     """Abstract Ajax Connection to Ruckus Unleashed or ZoneDirector"""
-
     def __init__(
         self
     ) -> None:
@@ -36,4 +38,5 @@ class AbcSession(ABC):
 
     @abstractmethod
     async def get_conf_str(self, item: ConfigItem, timeout: int | None = None) -> str:
+        """Return the relevant config xml, given a configuration key"""
         raise NotImplementedError(item)
