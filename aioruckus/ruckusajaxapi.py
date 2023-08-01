@@ -230,12 +230,11 @@ class RuckusAjaxApi(RuckusApi):
         wlang = await self._find_wlan_group_by_name(name)
         if wlang is None:
             return False
-        else:
-            await self._do_conf(
-                f"<ajax-request action='delobj' updater='wlangroup-list.0.5' comp='wlangroup-list'>"
-                f"<wlangroup id='{wlang['id']}'/></ajax-request>"
-            )
-            return True
+        await self._do_conf(
+            f"<ajax-request action='delobj' updater='wlangroup-list.0.5' comp='wlangroup-list'>"
+            f"<wlangroup id='{wlang['id']}'/></ajax-request>"
+        )
+        return True
 
     async def do_hide_ap_leds(self, mac: str, leds_off: bool = True) -> None:
         """Hide AP LEDs"""
@@ -389,6 +388,12 @@ class RuckusAjaxApi(RuckusApi):
         """Find AP by MAC"""
         return next((ap for ap in await self.get_aps() if ap["mac"] == mac), None)
 
+    async def _find_ap_group_by_name(self, name: str) -> dict:
+        """Find AP group by name"""
+        return next((
+            ap_group for ap_group in await self.get_ap_groups() if ap_group["name"] == name
+        ), None)
+
     async def _find_wlan_by_name(self, name: str) -> dict:
         """Find WLAN by name"""
         return next((
@@ -460,29 +465,35 @@ class RuckusAjaxApi(RuckusApi):
     @staticmethod
     def _normalize_conf_value(current_value: str, new_value: Any) -> str:
         """Normalize new_value format to match current_value"""
+        truthy_values = ("enable", "enabled", "true", "yes", "1")
+        falsy_values = ("disable", "disabled", "false", "no", "0")
+        normalization_map = {
+            "enable": ("ENABLE", "DISABLE"),
+            "disable": ("ENABLE", "DISABLE"),
+            "enabled": ("enabled", "disabled"),
+            "disabled": ("enabled", "disabled"),
+            "true": ("true", "false"),
+            "false": ("true", "false"),
+            "yes": ("yes", "no"),
+            "no": ("yes", "no"),
+            "1": ("1", "0"),
+            "0": ("1", "0"),
+        }
         current_value_lowered = current_value.lower()
-        if current_value_lowered in (
-            "enable", "disable", "enabled", "disabled", "true", "false", "yes", "no", "1", "0"
-        ):
+        if current_value_lowered in normalization_map:
             if isinstance(new_value, str):
                 new_value_lowered = new_value.lower()
-                new_value = (
-                    True if new_value_lowered in ("enable", "enabled", "true", "yes", "1") else
-                    False if new_value_lowered in ("disable", "disabled", "false", "no", "0") else
-                    new_value
-                )
+                if new_value_lowered in truthy_values:
+                    new_value = True
+                elif new_value_lowered in falsy_values:
+                    new_value = False
             elif isinstance(new_value, (int, float)) and not isinstance(new_value, bool):
-                new_value = True if new_value == 1 else False if new_value == 0 else new_value
+                if new_value == 1:
+                    new_value = True
+                elif new_value == 0:
+                    new_value = False
 
             if isinstance(new_value, bool):
-                if current_value_lowered in ("enable", "disable"):
-                    new_value = "ENABLE" if new_value else "DISABLE"
-                elif current_value_lowered in ("enabled", "disabled"):
-                    new_value = "enabled" if new_value else "disabled"
-                elif current_value_lowered in ("yes", "no"):
-                    new_value = "yes" if new_value else "no"
-                elif current_value_lowered in ("true", "false"):
-                    new_value = "true" if new_value else "false"
-                elif current_value_lowered in ("1", "0"):
-                    new_value = "1" if new_value else "0"
+                true_value, false_value = normalization_map[current_value_lowered]
+                new_value = true_value if new_value else false_value
         return new_value

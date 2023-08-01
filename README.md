@@ -84,9 +84,12 @@ async def test_aioruckus():
 asyncio.run(test_aioruckus())
 ```
 
-### Other Python APIs for Ruckus Unleashed
+### Other APIs for Ruckus Unleashed
 
-This project was originally a fork of [pyruckus](https://github.com/gabe565/pyruckus), which provides similar query functionality by controlling an SSH CLI session.
+This project was originally a fork of [pyruckus](https://github.com/gabe565/pyruckus), which provides similar Python query functionality by controlling an SSH CLI session.
+
+There is a [Go client](https://github.com/willglynn/ruckus-go) for the latest releases of Unleashed.  
+Since it's strongly typed, has good quality comments, and doesn't (yet) contain the large collection of tweaks and hacks needed to work over a wide range of Unleashed and ZoneDirector releases, the [ruckus-go](https://github.com/willglynn/ruckus-go) source code is a great place to understand the required requests and responses you should expect to receive from the AJAX API.
 
 There is also [scrapli](https://github.com/carlmontanari/scrapli) support for the Ruckus Unleashed SSH CLI via [scrapli community](https://github.com/scrapli/scrapli_community).  
-Authentication and privilege levels are implemented, but no templates are implemented as of April 2023.
+Authentication and privilege levels are implemented, but no templates are implemented as of August 2023.
