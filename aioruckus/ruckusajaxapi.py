@@ -109,6 +109,17 @@ class RuckusAjaxApi(RuckusApi):
             f"{remaining}</acl></ajax-request>"
         )
 
+    async def do_delete_ap_group(self, name: str) -> bool:
+        """Delete an AP group"""
+        ap_group = await self._find_ap_group_by_name(name)
+        if ap_group is None:
+            return False
+        await self._do_conf(
+            f"<ajax-request action='delobj' updater='apgroup-list.0.5' comp='apgroup-list'>"
+            f"<apgroup id='{ap_group['id']}'/></ajax-request>"
+        )
+        return True
+
     async def do_disable_wlan(self, name: str, disable_wlan: bool = True) -> None:
         """Disable a WLAN"""
         wlan = await self._find_wlan_by_name(name)
