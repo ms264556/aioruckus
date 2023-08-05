@@ -143,7 +143,7 @@ class AjaxSession(AbcSession):
                 if retrying:
                     # we tried logging in again, but the redirect still happens - maybe password
                     # changed?
-                    raise PermissionError(ERROR_POST_REDIRECTED)
+                    raise AuthenticationError(ERROR_POST_REDIRECTED)
                 await self.login()  # try logging in again, then retry post
                 return await self.request(cmd, data, timeout, retrying=True)
             result_text = await response.text()
