@@ -1,5 +1,7 @@
 """Adds AJAX Statistics and Command methods to RuckusApi"""
 
+import datetime
+import random
 from re import IGNORECASE, match
 from typing import Any, List
 import xml.etree.ElementTree as ET
@@ -78,11 +80,48 @@ class RuckusAjaxApi(RuckusApi):
             "<wlangroup /></ajax-request>", ["wlangroup", "wlan"]
         )
 
+    async def get_wlan_events(self, *wlan_ids, limit: int = 300) -> List:
+        """Return a list of WLAN events"""
+        return await self.get_events(filter={"wlan": list(wlan_ids) if wlan_ids else "*"}, limit=limit)
+
+    async def get_ap_events(self, *ap_macs, limit: int = 300) -> List:
+        """Return a list of AP events"""
+        return await self.get_events(filter={"ap": list(self._normalize_mac(mac) for mac in ap_macs) if ap_macs else "*"}, limit=limit)
+
+    async def get_client_events(self, limit: int = 300) -> List:
+        """Return a list of client events"""
+        return await self.get_events(filter={"c": "user"}, limit=limit)
+
+    async def get_wired_client_events(self, limit: int = 300) -> List:
+        """Return a list of wired client events"""
+        return await self.get_events(filter={"c": "wire"}, limit=limit)
+
+    async def get_events(self, filter: dict = {}, limit: int = 300, sort_by: str = "time", sort_descending: bool = True) -> List:
+        """Return a filtered list of events"""
+        xevent = ET.Element("xevent")
+        xevent.set("sortBy", sort_by)
+        xevent.set("sortDirection", "-1" if sort_descending else "1")
+        for key, values in filter.items():
+            if isinstance(values, str):
+                xevent.set(key, values)
+            else:
+                joined_values = "|".join(values)
+                joined_values = f"|{joined_values}|"
+                xevent.set(key, joined_values)
+
+        ts = self._ruckus_timestamp()
+        response = await self.cmdstat(
+            f"<ajax-request action='getstat' updater='eventd.{ts}' comp='eventd'>{ET.tostring(xevent).decode('utf-8')}"
+            f"<pieceStat start='0' number='{limit}' pid='1' requestId='eventd.{ts}'/></ajax-request>", ["xevent"]
+        )
+        return response["response"]["xevent"] if "xevent" in response["response"] else []
+
     async def get_syslog(self) -> str:
         """Return a list of syslog entries"""
+        ts = self._ruckus_timestamp()
         syslog = await self.cmdstat(
-            "<ajax-request action='docmd' xcmd='get-syslog' updater='system.0.5' comp='system'>"
-            "<xcmd cmd='get-syslog' type='sys'/></ajax-request>"
+            f"<ajax-request action='docmd' xcmd='get-syslog' updater='system.{ts}' comp='system'>"
+            f"<xcmd cmd='get-syslog' type='sys'/></ajax-request>"
         )
         return syslog["xmsg"]["res"]
 
@@ -114,8 +153,9 @@ class RuckusAjaxApi(RuckusApi):
         ap_group = await self._find_ap_group_by_name(name)
         if ap_group is None:
             return False
+        ts = self._ruckus_timestamp()
         await self._do_conf(
-            f"<ajax-request action='delobj' updater='apgroup-list.0.5' comp='apgroup-list'>"
+            f"<ajax-request action='delobj' updater='apgroup-list.{ts}' comp='apgroup-list'>"
             f"<apgroup id='{ap_group['id']}'/></ajax-request>"
         )
         return True
@@ -124,8 +164,9 @@ class RuckusAjaxApi(RuckusApi):
         """Disable a WLAN"""
         wlan = await self._find_wlan_by_name(name)
         if wlan:
+            ts = self._ruckus_timestamp()
             await self._do_conf(
-                f"<ajax-request action='updobj' updater='wlansvc-list.0.5' comp='wlansvc-list'>"
+                f"<ajax-request action='updobj' updater='wlansvc-list.{ts}' comp='wlansvc-list'>"
                 f"<wlansvc id='{wlan['id']}' name='{wlan['name']}' "
                 f"enable-type='{1 if disable_wlan else 0}' IS_PARTIAL='true'/></ajax-request>"
             )
@@ -194,8 +235,9 @@ class RuckusAjaxApi(RuckusApi):
         wlan = await self._find_wlan_by_name(name)
         if wlan is None:
             return False
+        ts = self._ruckus_timestamp()
         await self._do_conf(
-            f"<ajax-request action='delobj' updater='wlansvc-list.0.5' comp='wlansvc-list'>"
+            f"<ajax-request action='delobj' updater='wlansvc-list.{ts}' comp='wlansvc-list'>"
             f"<wlansvc id='{wlan['id']}'/></ajax-request>", timeout=20
         )
         return True
@@ -241,8 +283,9 @@ class RuckusAjaxApi(RuckusApi):
         wlang = await self._find_wlan_group_by_name(name)
         if wlang is None:
             return False
+        ts = self._ruckus_timestamp()
         await self._do_conf(
-            f"<ajax-request action='delobj' updater='wlangroup-list.0.5' comp='wlangroup-list'>"
+            f"<ajax-request action='delobj' updater='wlangroup-list.{ts}' comp='wlangroup-list'>"
             f"<wlangroup id='{wlang['id']}'/></ajax-request>"
         )
         return True
@@ -252,8 +295,9 @@ class RuckusAjaxApi(RuckusApi):
         mac = self._normalize_mac(mac)
         found_ap = await self._find_ap_by_mac(mac)
         if found_ap:
+            ts = self._ruckus_timestamp()
             await self._do_conf(
-                f"<ajax-request action='updobj' updater='ap-list.0.5' comp='ap-list'>"
+                f"<ajax-request action='updobj' updater='ap-list.{ts}' comp='ap-list'>"
                 f"<ap id='{found_ap['id']}' IS_PARTIAL='true' led-off='{str(leds_off).lower()}' />"
                 f"</ajax-request>"
             )
@@ -265,8 +309,9 @@ class RuckusAjaxApi(RuckusApi):
     async def do_restart_ap(self, mac: str) -> None:
         """Restart AP"""
         mac = self._normalize_mac(mac)
+        ts = self._ruckus_timestamp()
         return await self._cmdstat_noparse(
-            f"<ajax-request action='docmd' xcmd='reset' checkAbility='2' updater='stamgr.0.5' "
+            f"<ajax-request action='docmd' xcmd='reset' checkAbility='2' updater='stamgr.{ts}' "
             f"comp='stamgr'><xcmd cmd='reset' ap='{mac}' tag='ap' checkAbility='2'/></ajax-request>"
         )
 
@@ -419,9 +464,10 @@ class RuckusAjaxApi(RuckusApi):
 
     async def _get_timestamp_at_controller(self) -> int:
         """Get timestamp at controller"""
+        ts = self._ruckus_timestamp()
         timeinfo = await self.cmdstat(
-            "<ajax-request action='getstat' updater='system.0.5' comp='system'>"
-            "<time/></ajax-request>"
+            f"<ajax-request action='getstat' updater='system.{ts}' comp='system'>"
+            f"<time/></ajax-request>"
         )
         return int(timeinfo["response"]["time"]["time"])
 
@@ -454,6 +500,10 @@ class RuckusAjaxApi(RuckusApi):
         result = await self.conf(data, collection_elements, timeout)
         if "xmsg" in result:
             raise ValueError(result["xmsg"]["lmsg"])
+
+    @staticmethod
+    def _ruckus_timestamp() -> str:
+        return f"{int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000)}.{int(9000 * random.random()) + 1000}"
 
     @staticmethod
     def _normalize_mac(mac: str) -> str:

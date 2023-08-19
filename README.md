@@ -51,6 +51,15 @@ async def test_aioruckus():
 
         active_clients = await ruckus.get_active_clients()
         inactive_clients = await ruckus.get_inactive_clients() # always empty on Unleashed
+
+        all_events = await ruckus.get_events(limit=2000) # default is 300 event, sorted in descending order by time
+        ap_events = await ruckus.get_ap_events()
+        ap_group_events = await ruckus.get_ap_events("24:79:de:ad:be:ef", "24:59:de:ad:be:ef")
+        wlan_events = await ruckus.get_wlan_events()
+        wlan_group_events = await ruckus.get_wlan_events("my ssid", "my other ssid", "my third ssid")
+        client_events = await ruckus.get_client_events(limit=50)
+        wired_client_events = await ruckus.get_wired_client_events()
+
         syslog = await ruckus.get_syslog()
 
         await ruckus.do_block_client("60:ab:de:ad:be:ef")
