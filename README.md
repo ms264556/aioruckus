@@ -78,7 +78,6 @@ async def test_aioruckus():
         #
         all_events = await ruckus.get_all_events(limit=1000)
         ap_events = await ruckus.get_ap_events()
-        ap_events = await ruckus.get_ap_events()
         ap_group_events = await ruckus.get_ap_events("24:79:de:ad:be:ef", "24:59:de:ad:be:ef")
         wlan_events = await ruckus.get_wlan_events()
         wlan_group_events = await ruckus.get_wlan_events("my ssid", "my other ssid", "my third ssid")
