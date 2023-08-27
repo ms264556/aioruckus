@@ -7,6 +7,7 @@ from re import IGNORECASE, match
 from typing import Any, Dict, List
 import xml.etree.ElementTree as ET
 from xml.sax import saxutils
+import xmltodict
 
 from .const import (
     ERROR_INVALID_MAC,
@@ -81,74 +82,44 @@ class RuckusAjaxApi(RuckusApi):
             "<wlangroup /></ajax-request>", ["wlangroup", "wlan"]
         )
 
+    async def get_active_rogues(self) -> list[dict]:
+        """Return a list of currently active rogue devices"""
+        return await self.cmdstat(
+            "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
+            "<rogue LEVEL='1' recognized='!true'/></ajax-request>", ["rogue"]
+        )
+
+    async def get_known_rogues(self, limit: int = 300) -> list[dict]:
+        """Return a list of known/recognized rogues devices"""
+        return [rogue async for rogue in self.cmdstat_piecewise("stamgr", "rogue", "apstamgr-stat", filter={"LEVEL": "1", "recognized": "true"}, updater="krogue", limit=limit)]
+
+    async def get_blocked_rogues(self, limit: int = 300) -> list[dict]:
+        """Return a list of user blocked rogues devices"""
+        return [rogue async for rogue in self.cmdstat_piecewise("stamgr", "rogue", "apstamgr-stat", filter={"LEVEL": "1", "blocked": "true"}, updater="brogue", limit=limit)]
+
     async def get_all_alarms(self, limit: int = 300) -> list[dict]:
         """Return a list of all alerts"""
-        return [alarm async for alarm in self.get_events(event_type="alarm", limit=limit)]
+        return [alarm async for alarm in self.cmdstat_piecewise("eventd", "alarm", updater="page", limit=limit)]
 
     async def get_all_events(self, limit: int = 300) -> list[dict]:
         """Return a list of all events"""
-        return [xevent async for xevent in self.get_events(limit=limit)]
+        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", limit=limit)]
 
     async def get_wlan_events(self, *wlan_ids, limit: int = 300) -> list[dict]:
         """Return a list of WLAN events"""
-        return [xevent async for xevent in self.get_events(filter={"wlan": list(wlan_ids) if wlan_ids else "*"}, limit=limit)]
+        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filter={"wlan": list(wlan_ids) if wlan_ids else "*"}, limit=limit)]
 
     async def get_ap_events(self, *ap_macs, limit: int = 300) -> list[dict]:
         """Return a list of AP events"""
-        return [xevent async for xevent in self.get_events(filter={"ap": list(self._normalize_mac(mac) for mac in ap_macs) if ap_macs else "*"}, limit=limit)]
+        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filter={"ap": list(self._normalize_mac(mac) for mac in ap_macs) if ap_macs else "*"}, limit=limit)]
 
     async def get_client_events(self, limit: int = 300) -> list[dict]:
         """Return a list of client events"""
-        return [xevent async for xevent in self.get_events(filter={"c": "user"}, limit=limit)]
+        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filter={"c": "user"}, limit=limit)]
 
     async def get_wired_client_events(self, limit: int = 300) -> list[dict]:
         """Return a list of wired client events"""
-        return [xevent async for xevent in self.get_events(filter={"c": "wire"}, limit=limit)]
-
-    async def get_events(self, event_type: str = "xevent", filter: Dict[str, Any] = None, limit: int = 300, sort_by: str = "time", sort_descending: bool = True, page_size: int = None) -> AsyncIterator[dict]:
-        """Return a filtered list of events"""
-
-        request_filter = self._get_event_filter(event_type, filter, sort_by, sort_descending)
-
-        ts = self._ruckus_timestamp()
-        pid = 0
-        item_number = 0
-        page_size = page_size or limit
-
-        while True:
-            pid += 1
-            if page_size > limit > 0:
-                page_size = limit
-
-            request = f"<ajax-request action='getstat' updater='eventd.{ts}' comp='eventd'>{request_filter}" \
-                           f"<pieceStat start='{item_number}' number='{page_size}' pid='{pid}' requestId='eventd.{ts}'/></ajax-request>"
-            response = (await self.cmdstat(request, [event_type]))["response"]
-            
-            if event_type in response:
-                for response_event in response[event_type]:
-                    yield response_event
-                    item_number += 1
-                    if limit == 1:
-                        return
-                    limit -= 1
-            if response["done"] == "true":
-                return
-
-    @staticmethod
-    def _get_event_filter(filter_name: str = "xevent", filter: Dict[str, Any] = None, sort_by: str = "time", sort_descending: bool = True) -> str:
-        if filter is None:
-            filter = {}
-
-        filter_element = ET.Element(filter_name)
-        filter_element.set("sortBy", sort_by)
-        filter_element.set("sortDirection", "-1" if sort_descending else "1")
-        for key, values in filter.items():
-            if isinstance(values, str):
-                filter_element.set(key, values)
-            else:
-                joined_values = f"|{'|'.join(values)}|"
-                filter_element.set(key, joined_values)
-        return ET.tostring(filter_element).decode('utf-8')
+        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filter={"c": "wire"}, limit=limit)]
 
     async def get_syslog(self) -> str:
         """Return a list of syslog entries"""
@@ -510,11 +481,81 @@ class RuckusAjaxApi(RuckusApi):
         return await self.session.request(self.session.cmdstat_url, data, timeout)
 
     async def cmdstat(
-        self, data: str, collection_elements: List[str] = None, timeout: int | None = None
+        self, data: str, collection_elements: List[str] = None, aggressive_unwrap: bool = True,
+        timeout: int | None = None
     ) -> dict | List:
         """Call cmdstat and parse xml result"""
         result_text = await self._cmdstat_noparse(data, timeout)
-        return self._ruckus_xml_unwrap(result_text, collection_elements)
+        return self._ruckus_xml_unwrap(result_text, collection_elements, aggressive_unwrap)
+
+    async def cmdstat_piecewise(
+        self, comp: str, element_type: str, element_collection: str | None = None, filter: Dict[str, Any] | None = None, limit: int = 300, page_size: int | None = None,  updater: str | None = None, timeout: int | None = None
+    ) -> AsyncIterator[dict]:
+        """Call cmdstat and parse piecewise xml results"""
+
+        ts_time = self._ruckus_timestamp(random_part=False)
+        ts_random = self._ruckus_timestamp(time_part=False)
+        updater = updater or comp
+        page_size = page_size or limit
+
+        piece_stat = {
+              "@pid": 0,
+              "@start": 0,
+              "@number": page_size,
+              "@requestId": f"{updater}.{ts_time}",
+              "@cleanupId": f"{updater}.{ts_time}.{ts_random}"
+          }
+
+        request = {"ajax-request": {
+          "@action": "getstat",
+          "@comp": comp,
+          "@updater": f"{updater}.{ts_time}.{ts_random}",
+          element_type : self._get_event_filter(filter),
+          "pieceStat" : piece_stat
+        }}
+
+        pid = 0
+        item_number = 0
+        element_collection = element_collection or "response"
+
+        while True:
+            pid += 1
+            if page_size > limit > 0:
+                page_size = limit
+
+            piece_stat["@pid"] = pid
+            piece_stat["@start"] = item_number
+            piece_stat["@number"] = page_size
+
+            request_xml = xmltodict.unparse(request, full_document=False, short_empty_elements=True)
+            response = (await self.cmdstat(request_xml, [element_type], aggressive_unwrap=False))[element_collection]
+            
+            if element_type not in response:
+                return
+            for element in response[element_type]:
+                yield element
+                item_number += 1
+                if limit == 1:
+                    return
+                limit -= 1
+            if response["done"] == "true":
+                return        
+
+    @staticmethod
+    def _get_event_filter(filter: Dict[str, Any] = None, sort_by: str = "time", sort_descending: bool = True) -> str:
+
+        result = {
+            "@sortBy": sort_by,
+            "@sortDirection": -1 if sort_descending else 1
+        }
+        if filter is not None:
+            for key, values in filter.items():
+                if isinstance(values, str):
+                    result[f"@{key}"] = values
+                else:
+                    joined_values = f"|{'|'.join(values)}|"
+                    result[f"@{key}"] = joined_values
+        return result
 
     async def _conf_noparse(self, data: str, timeout: int | None = None) -> str:
         """Call conf without parsing response"""
@@ -536,8 +577,8 @@ class RuckusAjaxApi(RuckusApi):
             raise ValueError(result["xmsg"]["lmsg"])
 
     @staticmethod
-    def _ruckus_timestamp() -> str:
-        return f"{int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000)}.{int(9000 * random.random()) + 1000}"
+    def _ruckus_timestamp(time_part: bool = True, random_part: bool = True) -> str:
+        return f"{int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000) if time_part else ''}{('.' if time_part and random_part else '')}{int(9000 * random.random()) + 1000 if random_part else ''}"
 
     @staticmethod
     def _normalize_mac(mac: str) -> str:

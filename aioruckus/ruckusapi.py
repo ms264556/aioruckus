@@ -111,7 +111,7 @@ class RuckusApi(ABC):
         return acls[0].get("deny", [])
 
     @staticmethod
-    def _ruckus_xml_unwrap(xml: str, collection_elements: List[str] = None) -> dict | List:
+    def _ruckus_xml_unwrap(xml: str, collection_elements: List[str] = None, aggressive_unwrap: bool = True) -> dict | List:
         # convert xml and unwrap collection
         force_list = None if not collection_elements else {ce: True for ce in collection_elements}
         result = xmltodict.parse(
@@ -125,7 +125,7 @@ class RuckusApi(ABC):
             [] if not collection_elements else [f"{ce}-list"
             for ce in collection_elements] + collection_elements
         )
-        for key in ["ajax-response", "response", "apstamgr-stat"] + collection_list:
+        for key in ["ajax-response", "response"] + (["apstamgr-stat"] if aggressive_unwrap else []) + collection_list:
             if result and key and key in result:
                 result = result[key]
         return result or []
