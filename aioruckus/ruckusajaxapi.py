@@ -1,9 +1,10 @@
 """Adds AJAX Statistics and Command methods to RuckusApi"""
 
+from collections.abc import AsyncIterator
 import datetime
 import random
 from re import IGNORECASE, match
-from typing import Any, List
+from typing import Any, Dict, List
 import xml.etree.ElementTree as ET
 from xml.sax import saxutils
 
@@ -80,41 +81,74 @@ class RuckusAjaxApi(RuckusApi):
             "<wlangroup /></ajax-request>", ["wlangroup", "wlan"]
         )
 
-    async def get_wlan_events(self, *wlan_ids, limit: int = 300) -> List:
+    async def get_all_alarms(self, limit: int = 300) -> list[dict]:
+        """Return a list of all alerts"""
+        return [alarm async for alarm in self.get_events(event_type="alarm", limit=limit)]
+
+    async def get_all_events(self, limit: int = 300) -> list[dict]:
+        """Return a list of all events"""
+        return [xevent async for xevent in self.get_events(limit=limit)]
+
+    async def get_wlan_events(self, *wlan_ids, limit: int = 300) -> list[dict]:
         """Return a list of WLAN events"""
-        return await self.get_events(filter={"wlan": list(wlan_ids) if wlan_ids else "*"}, limit=limit)
+        return [xevent async for xevent in self.get_events(filter={"wlan": list(wlan_ids) if wlan_ids else "*"}, limit=limit)]
 
-    async def get_ap_events(self, *ap_macs, limit: int = 300) -> List:
+    async def get_ap_events(self, *ap_macs, limit: int = 300) -> list[dict]:
         """Return a list of AP events"""
-        return await self.get_events(filter={"ap": list(self._normalize_mac(mac) for mac in ap_macs) if ap_macs else "*"}, limit=limit)
+        return [xevent async for xevent in self.get_events(filter={"ap": list(self._normalize_mac(mac) for mac in ap_macs) if ap_macs else "*"}, limit=limit)]
 
-    async def get_client_events(self, limit: int = 300) -> List:
+    async def get_client_events(self, limit: int = 300) -> list[dict]:
         """Return a list of client events"""
-        return await self.get_events(filter={"c": "user"}, limit=limit)
+        return [xevent async for xevent in self.get_events(filter={"c": "user"}, limit=limit)]
 
-    async def get_wired_client_events(self, limit: int = 300) -> List:
+    async def get_wired_client_events(self, limit: int = 300) -> list[dict]:
         """Return a list of wired client events"""
-        return await self.get_events(filter={"c": "wire"}, limit=limit)
+        return [xevent async for xevent in self.get_events(filter={"c": "wire"}, limit=limit)]
 
-    async def get_events(self, filter: dict = {}, limit: int = 300, sort_by: str = "time", sort_descending: bool = True) -> List:
+    async def get_events(self, event_type: str = "xevent", filter: Dict[str, Any] = None, limit: int = 300, sort_by: str = "time", sort_descending: bool = True, page_size: int = None) -> AsyncIterator[dict]:
         """Return a filtered list of events"""
-        xevent = ET.Element("xevent")
-        xevent.set("sortBy", sort_by)
-        xevent.set("sortDirection", "-1" if sort_descending else "1")
-        for key, values in filter.items():
-            if isinstance(values, str):
-                xevent.set(key, values)
-            else:
-                joined_values = "|".join(values)
-                joined_values = f"|{joined_values}|"
-                xevent.set(key, joined_values)
+
+        request_filter = self._get_event_filter(event_type, filter, sort_by, sort_descending)
 
         ts = self._ruckus_timestamp()
-        response = await self.cmdstat(
-            f"<ajax-request action='getstat' updater='eventd.{ts}' comp='eventd'>{ET.tostring(xevent).decode('utf-8')}"
-            f"<pieceStat start='0' number='{limit}' pid='1' requestId='eventd.{ts}'/></ajax-request>", ["xevent"]
-        )
-        return response["response"]["xevent"] if "xevent" in response["response"] else []
+        pid = 0
+        item_number = 0
+        page_size = page_size or limit
+
+        while True:
+            pid += 1
+            if page_size > limit > 0:
+                page_size = limit
+
+            request = f"<ajax-request action='getstat' updater='eventd.{ts}' comp='eventd'>{request_filter}" \
+                           f"<pieceStat start='{item_number}' number='{page_size}' pid='{pid}' requestId='eventd.{ts}'/></ajax-request>"
+            response = (await self.cmdstat(request, [event_type]))["response"]
+            
+            if event_type in response:
+                for response_event in response[event_type]:
+                    yield response_event
+                    item_number += 1
+                    if limit == 1:
+                        return
+                    limit -= 1
+            if response["done"] == "true":
+                return
+
+    @staticmethod
+    def _get_event_filter(filter_name: str = "xevent", filter: Dict[str, Any] = None, sort_by: str = "time", sort_descending: bool = True) -> str:
+        if filter is None:
+            filter = {}
+
+        filter_element = ET.Element(filter_name)
+        filter_element.set("sortBy", sort_by)
+        filter_element.set("sortDirection", "-1" if sort_descending else "1")
+        for key, values in filter.items():
+            if isinstance(values, str):
+                filter_element.set(key, values)
+            else:
+                joined_values = f"|{'|'.join(values)}|"
+                filter_element.set(key, joined_values)
+        return ET.tostring(filter_element).decode('utf-8')
 
     async def get_syslog(self) -> str:
         """Return a list of syslog entries"""
