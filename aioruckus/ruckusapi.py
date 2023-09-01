@@ -6,8 +6,10 @@ from typing import List
 
 import xmltodict
 
+from aioruckus.exceptions import SchemaError
+
 from .abcsession import AbcSession, ConfigItem
-from .const import SystemStat
+from .const import ERROR_POST_BADRESULT, SystemStat
 
 class RuckusApi(ABC):
     """Ruckus ZoneDirector or Unleashed Configuration API"""
@@ -125,7 +127,12 @@ class RuckusApi(ABC):
             [] if not collection_elements else [f"{ce}-list"
             for ce in collection_elements] + collection_elements
         )
-        for key in ["ajax-response", "response"] + (["apstamgr-stat"] if aggressive_unwrap else []) + collection_list:
+        try:
+            result = result["ajax-response"]["response"]
+        except KeyError as kerr:
+            raise SchemaError(ERROR_POST_BADRESULT) from kerr
+
+        for key in (["apstamgr-stat"] if aggressive_unwrap else []) + collection_list:
             if result and key and key in result:
                 result = result[key]
         return result or []
