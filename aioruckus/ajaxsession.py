@@ -122,15 +122,18 @@ class AjaxSession(AbcSession):
     async def close(self) -> None:
         """Logout of ZoneDirector/Unleashed and close websessiom"""
         if self.websession:
-            async with self.websession.head(
-                self.__login_url,
-                params={"logout": "1"},
-                timeout=3,
-                allow_redirects=False,
-            ):
-                pass
-            if self.__auto_cleanup_websession:
-                await self.websession.close()
+            try:
+                if self.__login_url:
+                    async with self.websession.head(
+                        self.__login_url,
+                        params={"logout": "1"},
+                        timeout=3,
+                        allow_redirects=False,
+                    ):
+                        pass
+            finally:
+                if self.__auto_cleanup_websession:
+                    await self.websession.close()
 
     async def request(
         self,
