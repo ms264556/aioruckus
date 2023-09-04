@@ -5,6 +5,7 @@ import ssl
 from typing import Any, TYPE_CHECKING
 
 import aiohttp
+from urllib.parse import urlparse
 import xmltodict
 
 from .abcsession import AbcSession, ConfigItem
@@ -59,13 +60,21 @@ class AjaxSession(AbcSession):
             async with self.websession.head(
                 f"https://{self.host}", timeout=3, allow_redirects=False
             ) as head:
-                self.__login_url = head.headers["Location"]
-                self.base_url, login_page = self.__login_url.rsplit("/", 1)
-                if login_page in ("index.html", "wizard.jsp"):
-                    # Unleashed Rebuilding or Setup Wizard
-                    raise ConnectionRefusedError(ERROR_CONNECT_TEMPORARY)
-                self.cmdstat_url = self.base_url + "/_cmdstat.jsp"
-                self.conf_url = self.base_url + "/_conf.jsp"
+                redirect_to = head.headers["Location"]
+            if urlparse(redirect_to).path:
+                self.__login_url = redirect_to
+            else:
+                # Unleashed Member has redirected to Unleashed Master
+                async with self.websession.head(
+                    redirect_to, timeout=3, allow_redirects=False
+                ) as head:
+                    self.__login_url = head.headers["Location"]
+            self.base_url, login_page = self.__login_url.rsplit("/", 1)
+            if login_page in ("index.html", "wizard.jsp"):
+                # Unleashed Rebuilding or Setup Wizard
+                raise ConnectionRefusedError(ERROR_CONNECT_TEMPORARY)
+            self.cmdstat_url = self.base_url + "/_cmdstat.jsp"
+            self.conf_url = self.base_url + "/_conf.jsp"
         except aiohttp.client_exceptions.ClientConnectorError as cerr:
             raise ConnectionError(ERROR_CONNECT_EOF) from cerr
         except asyncio.exceptions.TimeoutError as terr:
