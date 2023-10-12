@@ -1,11 +1,10 @@
 """Ruckus AbcSession which connects to Ruckus Unleashed or ZoneDirector via HTTPS AJAX"""
 
+from typing import Any, TYPE_CHECKING
+from urllib.parse import urlparse
 import asyncio
 import ssl
-from typing import Any, TYPE_CHECKING
-
 import aiohttp
-from urllib.parse import urlparse
 import xmltodict
 
 from .abcsession import AbcSession, ConfigItem

@@ -5,3 +5,4 @@ from .ajaxsession import AjaxSession
 from .backupsession import BackupSession
 from .ruckusapi import RuckusApi
 from .ruckusajaxapi import RuckusAjaxApi
+from .ruckusbackupapi import RuckusBackupApi
