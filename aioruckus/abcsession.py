@@ -18,6 +18,17 @@ class ConfigItem(Enum):
     MESH_LIST = "mesh-list"
     ZTMESHSERIAL_LIST = "ztmeshSerial-list"
     ACL_LIST = "acl-list"
+    DPSK_LIST = "dpsk-list"
+    ROLE_LIST = "role-list"
+    AVPPOLICY_LIST = "avppolicy-list"
+    AVPAPPLICATION_LIST = "avpapplication-list"
+    AVPPORT_LIST = "avpport-list"
+    PRECEDENCE_LIST = "precedence-list"
+    DEVICEPOLICY_LIST = "devicepolicy-list"
+    URLFILTERINGPOLICY_LIST = "urlfilteringpolicy-list"
+    URLFILTERINGCATEGORY_LIST = "urlfiltering-blockcategories-list"
+    POLICY_LIST = "policy-list"
+    POLICY6_LIST = "policy6-list"
     SYSTEM = "system"
 
 class AbcSession(ABC):

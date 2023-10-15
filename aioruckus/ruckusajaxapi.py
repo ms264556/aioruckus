@@ -82,6 +82,13 @@ class RuckusAjaxApi(RuckusApi):
             "<wlangroup /></ajax-request>", ["wlangroup", "wlan"]
         )
 
+    async def get_dpsk_stats(self) -> List:
+        """Return a list of AP group statistics"""
+        return await self.cmdstat(
+            "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
+            "<dpsklist /></ajax-request>", ["dpsk"]
+        )
+
     async def get_active_rogues(self) -> list[dict]:
         """Return a list of currently active rogue devices"""
         return await self.cmdstat(
@@ -597,39 +604,4 @@ class RuckusAjaxApi(RuckusApi):
         ):
             return passphrase
         raise ValueError(ERROR_PASSPHRASE_LEN)
-
-    @staticmethod
-    def _normalize_conf_value(current_value: str, new_value: Any) -> str:
-        """Normalize new_value format to match current_value"""
-        truthy_values = ("enable", "enabled", "true", "yes", "1")
-        falsy_values = ("disable", "disabled", "false", "no", "0")
-        normalization_map = {
-            "enable": ("ENABLE", "DISABLE"),
-            "disable": ("ENABLE", "DISABLE"),
-            "enabled": ("enabled", "disabled"),
-            "disabled": ("enabled", "disabled"),
-            "true": ("true", "false"),
-            "false": ("true", "false"),
-            "yes": ("yes", "no"),
-            "no": ("yes", "no"),
-            "1": ("1", "0"),
-            "0": ("1", "0"),
-        }
-        current_value_lowered = current_value.lower()
-        if current_value_lowered in normalization_map:
-            if isinstance(new_value, str):
-                new_value_lowered = new_value.lower()
-                if new_value_lowered in truthy_values:
-                    new_value = True
-                elif new_value_lowered in falsy_values:
-                    new_value = False
-            elif isinstance(new_value, (int, float)) and not isinstance(new_value, bool):
-                if new_value == 1:
-                    new_value = True
-                elif new_value == 0:
-                    new_value = False
-
-            if isinstance(new_value, bool):
-                true_value, false_value = normalization_map[current_value_lowered]
-                new_value = true_value if new_value else false_value
-        return new_value
+    

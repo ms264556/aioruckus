@@ -26,11 +26,13 @@ async def test_aioruckus():
 
         #
         # viewing configuration
+        # note: configuration functions resolve all related objects, so may be slower than stats functions
         #
         aps = await ruckus.get_aps()
         ap_groups = await ruckus.get_ap_groups()
         wlans = await ruckus.get_wlans()
         wlan_groups = await ruckus.get_wlan_groups() # WLAN Groups are CLI-only on Unleashed
+        dpsks = await ruckus.get_dpsks()
         mesh = await ruckus.get_mesh_info()
         default_system_info = await ruckus.get_system_info()
         all_system_info = await ruckus.get_system_info(SystemStat.ALL)
