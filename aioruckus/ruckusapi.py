@@ -6,7 +6,8 @@ from typing import Any, List
 
 import xmltodict
 
-from aioruckus.exceptions import SchemaError
+from .exceptions import SchemaError
+from .typing.policy import AvpApplication, AvpPolicy, Ip4Policy, Ip6Policy
 
 from .abcsession import AbcSession, ConfigItem
 from .const import ERROR_POST_BADRESULT, DEFAULT_FILTER_BLOCKING_CATEGORIES, SystemStat
@@ -155,11 +156,11 @@ class RuckusApi(ABC):
         except KeyError:
             return [{"id": k, "name": v} for k, v in DEFAULT_FILTER_BLOCKING_CATEGORIES.items()]
 
-    async def get_ip4_policies(self) -> List[dict]:
+    async def get_ip4_policies(self) -> list[dict | Ip4Policy]:
         """Return a list of IP4 Policies"""
         return await self._get_conf(ConfigItem.POLICY_LIST, ["policy", "rule"])
 
-    async def get_ip6_policies(self) -> List[dict]:
+    async def get_ip6_policies(self) -> list[dict | Ip6Policy]:
         """Return a list of IP6 Policies"""
         return await self._get_conf(ConfigItem.POLICY6_LIST, ["policy6", "rule6"])
 
@@ -177,11 +178,11 @@ class RuckusApi(ABC):
         except KeyError:
             return [{'id': '1', 'name': 'Default', 'EDITABLE': 'true', 'prerule': {'description': '', 'attr': 'vlan', 'order': 'AAA,Device Policy,WLAN', 'EDITABLE': 'false'}}]
 
-    async def get_arc_policies(self) -> List[dict]:
+    async def get_arc_policies(self) -> list[AvpPolicy | dict]:
         """Return a list of Application Recognition & Control Policies"""
         return await self._get_conf(ConfigItem.AVPPOLICY_LIST, ["avppolicy", "avprule"])
 
-    async def get_arc_applications(self) -> List[dict]:
+    async def get_arc_applications(self) -> list[AvpApplication | dict]:
         """Return a list of Application Recognition & Control User Defined Applications"""
         try:
             return await self._get_conf(ConfigItem.AVPAPPLICATION_LIST, ["avpapplication"])

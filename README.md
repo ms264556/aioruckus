@@ -114,6 +114,7 @@ async def test_aioruckus():
         ap_groups = await ruckus.get_ap_groups()
         wlans = await ruckus.get_wlans()
         wlan_groups = await ruckus.get_wlan_groups()
+        dpsks = await ruckus.get_dpsks()
         blocked = await ruckus.get_blocked_client_macs()
         mesh = await ruckus.get_mesh_info()
         all_system_info = await ruckus.get_system_info(SystemStat.ALL)
