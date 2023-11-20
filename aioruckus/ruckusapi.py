@@ -7,10 +7,10 @@ from typing import Any, List
 import xmltodict
 
 from .exceptions import SchemaError
-from .typing.policy import AvpApplication, AvpPolicy, Ip4Policy, Ip6Policy
+from .typing.policy import AvpApplication, AvpPolicy, AvpPort, Ip4Policy, Ip6Policy, PrecedencePolicy, UrlFilter
 
 from .abcsession import AbcSession, ConfigItem
-from .const import ERROR_POST_BADRESULT, DEFAULT_FILTER_BLOCKING_CATEGORIES, SystemStat
+from .const import ERROR_POST_BADRESULT, URL_FILTERING_CATEGORIES, SystemStat
 
 class RuckusApi(ABC):
     """Ruckus ZoneDirector or Unleashed Configuration API"""
@@ -124,7 +124,7 @@ class RuckusApi(ABC):
                 ]
         return wlan_groups
 
-    async def get_urlfiltering_policies(self) -> List[dict]:
+    async def get_urlfiltering_policies(self) -> list[UrlFilter | dict]:
         """Return a list of URL Filtering Policies"""
         try:
             policies = await self._get_conf(ConfigItem.URLFILTERINGPOLICY_LIST, ["urlfilteringpolicy", "rule", "whitelist", "blacklist"])
@@ -141,10 +141,14 @@ class RuckusApi(ABC):
             else:
                 policy.pop("blockcategories", None)
             policy.pop("blockcategories-num", None)
-            if not policy["blacklist"]:
+            if policy["blacklist"]:
+                policy["blacklist"] = [item["domain-name"] for item in policy["blacklist"]]
+            else:
                 policy.pop("blacklist", None)
             policy.pop("blacklist-num", None)
-            if not policy["whitelist"]:
+            if policy["whitelist"]:
+                policy["whitelist"] = [item["domain-name"] for item in policy["whitelist"]]
+            else:
                 policy.pop("whitelist", None)
             policy.pop("whitelist-num", None)
         return policies
@@ -154,7 +158,7 @@ class RuckusApi(ABC):
         try:
             return await self._get_conf(ConfigItem.URLFILTERINGCATEGORY_LIST, ["urlfiltering-blockcategories", "list"])
         except KeyError:
-            return [{"id": k, "name": v} for k, v in DEFAULT_FILTER_BLOCKING_CATEGORIES.items()]
+            return [{"id": k, "name": v} for k, v in URL_FILTERING_CATEGORIES.items()]
 
     async def get_ip4_policies(self) -> list[dict | Ip4Policy]:
         """Return a list of IP4 Policies"""
@@ -171,12 +175,16 @@ class RuckusApi(ABC):
         except KeyError:
             return []
 
-    async def get_precedence_policies(self) -> List[dict]:
+    async def get_precedence_policies(self) -> list[PrecedencePolicy | dict]:
         """Return a list of Precedence Policies"""
         try:
-            return await self._get_conf(ConfigItem.PRECEDENCE_LIST, ["precedence", "prerule"])
+            policies = await self._get_conf(ConfigItem.PRECEDENCE_LIST, ["precedence", "prerule"])
+            for policy in policies:
+                for prerule in policy["prerule"]:
+                    prerule["order"] = prerule["order"].split(",")
+            return policies
         except KeyError:
-            return [{'id': '1', 'name': 'Default', 'EDITABLE': 'true', 'prerule': {'description': '', 'attr': 'vlan', 'order': 'AAA,Device Policy,WLAN', 'EDITABLE': 'false'}}]
+            return [{'id': '1', 'name': 'Default', 'EDITABLE': 'true', 'prerule': [{'description': '', 'attr': 'vlan', 'order': ['AAA','Device Policy','WLAN'], 'EDITABLE': 'false'}, {'description': '', 'attr': 'rate-limit', 'order': ['AAA','Device Policy','WLAN'], 'EDITABLE': 'false'}]}]
 
     async def get_arc_policies(self) -> list[AvpPolicy | dict]:
         """Return a list of Application Recognition & Control Policies"""
@@ -189,7 +197,7 @@ class RuckusApi(ABC):
         except KeyError:
             return []
 
-    async def get_arc_ports(self) -> List[dict]:
+    async def get_arc_ports(self) -> list[AvpPort | dict]:
         """Return a list of Application Recognition & Control User Defined Ports"""
         try:
             return await self._get_conf(ConfigItem.AVPPORT_LIST, ["avpport"])

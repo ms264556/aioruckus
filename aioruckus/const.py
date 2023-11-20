@@ -43,7 +43,7 @@ class WlanEncryption(Enum):
     WPA23_MIXED = "wpa23-mixed"
     WPA3 = "wpa3"
 
-DEFAULT_FILTER_BLOCKING_CATEGORIES = {
+URL_FILTERING_CATEGORIES = {
   '1': 'Real Estate',
   '2': 'Computer and Internet Security',
   '3': 'Financial Services',
@@ -128,3 +128,10 @@ DEFAULT_FILTER_BLOCKING_CATEGORIES = {
   '82': 'Web Hosting',
   '83': 'Food and Dining'
 }
+
+class UrlFilteringGroups(Enum):
+    """URL Filtering groups"""
+    NO_ADULT = [{'id': category, 'name': URL_FILTERING_CATEGORIES[category]} for category in ['68', '11', '70', '8', '18', '15', '46', '64', '49', '56', '32', '62', '37', '57', '71', '59', '72', '48', '36']]
+    CLEAN_AND_SAFE = [{'id': category, 'name': URL_FILTERING_CATEGORIES[category]} for category in ['68', '10', '11', '67', '70', '8', '18', '15', '27', '54', '33', '46', '64', '49', '56', '32', '62', '37', '57', '58', '71', '59', '72', '48', '36']]
+    CHILD_AND_STUDENT_FRIENDLY = [{'id': category, 'name': URL_FILTERING_CATEGORIES[category]} for category in ['68', '10', '11', '76', '67', '53', '70', '8', '18', '15', '27', '54', '33', '46', '64', '49', '56', '32', '62', '75', '37', '31', '57', '58', '44', '71', '59', '43', '72', '48', '36']]
+    STRICT = [{'id': category, 'name': URL_FILTERING_CATEGORIES[category]} for category in ['68', '10', '11', '76', '6', '67', '53', '70', '8', '18', '15', '74', '27', '34', '54', '33', '46', '38', '64', '78', '49', '56', '32', '60', '62', '73', '75', '37', '31', '47', '57', '58', '44', '71', '19', '30', '7', '14', '39', '59', '25', '43', '72', '48', '36']]

@@ -18,7 +18,7 @@ AvpApplication = TypedDict('AvpApplication', {
     }, total=False)
 
 AvpPort = TypedDict('AvpPort', {
-    'id': str, 'name': str, 'protocol': Literal['tcp', 'udp']
+    'id': str, 'name': str, 'port': str, 'protocol': Literal['tcp', 'udp']
     }, total=False)
 
 IpRule = TypedDict('IpRule', {
@@ -36,4 +36,27 @@ Ip4Policy = TypedDict('IpPolicy', {
 Ip6Policy = TypedDict('IpPolicy', {
     'id': str, 'name': str, 'default-mode': Literal['accept', 'deny'], 'internal-id': str, 'guestservice-id': str, 'type': str,
     'EDITABLE': str, 'rule6': list[IpRule]
+    }, total=False)
+
+UrlBlockCategory = TypedDict('UrlBlockCategory', {
+    'id': str, 'name': str
+    }, total=False)
+
+UrlSafeSearchDns = TypedDict('UrlSafeSearchDns', {
+    'enabled': Literal['true', 'false'], 'dns': str
+    }, total=False)
+
+UrlFilter = TypedDict('UrlFilter', {
+    'id': str, 'name': str, 'description': str,
+    'filtering-level': Literal['CUSTOM', 'NO_ADULT', 'CLEAN_AND_SAFE', 'CHILD_AND_STUDENT_FRIENDLY', 'STRICT'], 'blockcategories': list[UrlBlockCategory],
+    'blacklist': list[str], 'whitelist': list[str],
+    'safesearchgoogle': UrlSafeSearchDns, 'safesearchyoutube': UrlSafeSearchDns, 'safesearchbing': UrlSafeSearchDns
+    }, total=False)
+
+PreRule = TypedDict('PreRule', {
+    'description': str, 'attr': str, 'order': list[Literal['AAA', 'Device Policy', 'WLAN']], 'EDITABLE': Literal['true', 'false']
+    }, total=False)
+
+PrecedencePolicy = TypedDict('PrecedencePolicy', {
+    'id': str, 'name': str, 'EDITABLE': Literal['true', 'false'], 'prerule': list[PreRule]
     }, total=False)
