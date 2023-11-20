@@ -7,7 +7,7 @@ from typing import Any, List
 import xmltodict
 
 from .exceptions import SchemaError
-from .typing.policy import AvpApplication, AvpPolicy, AvpPort, Ip4Policy, Ip6Policy, PrecedencePolicy, UrlFilter
+from .typing.policy import ArcApplication, ArcPolicy, AvpPort, DevicePolicy, Dpsk, Ip4Policy, Ip6Policy, L2Policy, L2Rule, PrecedencePolicy, Role, UrlBlockCategory, UrlFilter
 
 from .abcsession import AbcSession, ConfigItem
 from .const import ERROR_POST_BADRESULT, URL_FILTERING_CATEGORIES, SystemStat
@@ -153,22 +153,22 @@ class RuckusApi(ABC):
             policy.pop("whitelist-num", None)
         return policies
 
-    async def get_urlfiltering_blockingcategories(self):
+    async def get_urlfiltering_blockingcategories(self) -> list[UrlBlockCategory | dict]:
         """Return a list of URL Filtering Blocking Categories"""
         try:
             return await self._get_conf(ConfigItem.URLFILTERINGCATEGORY_LIST, ["urlfiltering-blockcategories", "list"])
         except KeyError:
             return [{"id": k, "name": v} for k, v in URL_FILTERING_CATEGORIES.items()]
 
-    async def get_ip4_policies(self) -> list[dict | Ip4Policy]:
+    async def get_ip4_policies(self) -> list[Ip4Policy | dict]:
         """Return a list of IP4 Policies"""
         return await self._get_conf(ConfigItem.POLICY_LIST, ["policy", "rule"])
 
-    async def get_ip6_policies(self) -> list[dict | Ip6Policy]:
+    async def get_ip6_policies(self) -> list[Ip6Policy | dict]:
         """Return a list of IP6 Policies"""
         return await self._get_conf(ConfigItem.POLICY6_LIST, ["policy6", "rule6"])
 
-    async def get_device_policies(self) -> List[dict]:
+    async def get_device_policies(self) -> list[DevicePolicy | dict]:
         """Return a list of Device Policies"""
         try:
             return await self._get_conf(ConfigItem.DEVICEPOLICY_LIST, ["devicepolicy", "devrule"])
@@ -186,11 +186,11 @@ class RuckusApi(ABC):
         except KeyError:
             return [{'id': '1', 'name': 'Default', 'EDITABLE': 'true', 'prerule': [{'description': '', 'attr': 'vlan', 'order': ['AAA','Device Policy','WLAN'], 'EDITABLE': 'false'}, {'description': '', 'attr': 'rate-limit', 'order': ['AAA','Device Policy','WLAN'], 'EDITABLE': 'false'}]}]
 
-    async def get_arc_policies(self) -> list[AvpPolicy | dict]:
+    async def get_arc_policies(self) -> list[ArcPolicy | dict]:
         """Return a list of Application Recognition & Control Policies"""
         return await self._get_conf(ConfigItem.AVPPOLICY_LIST, ["avppolicy", "avprule"])
 
-    async def get_arc_applications(self) -> list[AvpApplication | dict]:
+    async def get_arc_applications(self) -> list[ArcApplication | dict]:
         """Return a list of Application Recognition & Control User Defined Applications"""
         try:
             return await self._get_conf(ConfigItem.AVPAPPLICATION_LIST, ["avpapplication"])
@@ -204,12 +204,12 @@ class RuckusApi(ABC):
         except KeyError:
             return []
 
-    async def get_roles(self) -> List[dict]:
+    async def get_roles(self) -> list[Role | dict]:
         """Return a list of Roles"""
         wlan_map = {wlan['id']: wlan for wlan in await self.get_wlans()}
         return await self.__get_roles(wlan_map)
 
-    async def __get_roles(self, wlan_map: dict[str, dict]) -> List[dict]:
+    async def __get_roles(self, wlan_map: dict[str, dict]) -> list[Role | dict]:
         """Return a list of Roles"""
         try:
             roles = await self._get_conf(ConfigItem.ROLE_LIST, ["role", "allow-wlansvc"])
@@ -249,7 +249,7 @@ class RuckusApi(ABC):
                 del role["policy6-id"]
         return roles
 
-    async def get_dpsks(self) -> List[dict]:
+    async def get_dpsks(self) -> list[Dpsk | dict]:
         """Return a list of DPSKs"""
         try:
             dpsks = await self._get_conf(ConfigItem.DPSK_LIST, ["dpsk"])
@@ -286,14 +286,14 @@ class RuckusApi(ABC):
         """Return a list of Pre-approved AP serial numbers"""
         return await self._get_conf(ConfigItem.ZTMESHSERIAL_LIST, ["ztmeshSerial"])
 
-    async def get_acls(self) -> List:
+    async def get_acls(self) -> list[L2Policy | dict]:
         """Return a list of ACLs"""
         try:
             return await self._get_conf(ConfigItem.ACL_LIST, ["accept", "deny", "acl"])
         except KeyError:
             return []
 
-    async def get_blocked_client_macs(self) -> List:
+    async def get_blocked_client_macs(self) -> list[L2Rule | dict]:
         """Return a list of blocked client MACs"""
         acls = await self.get_acls()
         # blocklist is always first acl
