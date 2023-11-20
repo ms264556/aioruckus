@@ -80,7 +80,7 @@ Role = TypedDict('Role', {
     }, total=False)
 
 Dpsk = TypedDict('Dpsk', {
-    'id': str, ',mac': str, 'user': str, 'passphrase': str, 'last-rekey': str, 'next-rekey': str,
+    'id': str, 'mac': str, 'user': str, 'passphrase': str, 'last-rekey': str, 'next-rekey': str,
     'start-point': str, 'expire': str, 'dvlan-id': str, 'creation': str, 'wlansvc': dict, 'role': Role
     }, total=False)
 
