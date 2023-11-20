@@ -17,7 +17,7 @@ ArcApplication = TypedDict('ArcApplication', {
     'id': str, 'name': str, 'protocol': Literal['tcp', 'udp'] , 'src-ip': str, 'src-port': str, 'dst-ip': str, 'dst-port': str, 'netmask': str
     }, total=False)
 
-AvpPort = TypedDict('AvpPort', {
+ArcPort = TypedDict('ArcPort', {
     'id': str, 'name': str, 'port': str, 'protocol': Literal['tcp', 'udp']
     }, total=False)
 

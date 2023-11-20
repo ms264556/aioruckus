@@ -7,7 +7,7 @@ from typing import Any, List
 import xmltodict
 
 from .exceptions import SchemaError
-from .typing.policy import ArcApplication, ArcPolicy, AvpPort, DevicePolicy, Dpsk, Ip4Policy, Ip6Policy, L2Policy, L2Rule, PrecedencePolicy, Role, UrlBlockCategory, UrlFilter
+from .typing.policy import ArcApplication, ArcPolicy, ArcPort, DevicePolicy, Dpsk, Ip4Policy, Ip6Policy, L2Policy, L2Rule, PrecedencePolicy, Role, UrlBlockCategory, UrlFilter
 
 from .abcsession import AbcSession, ConfigItem
 from .const import ERROR_POST_BADRESULT, URL_FILTERING_CATEGORIES, SystemStat
@@ -197,7 +197,7 @@ class RuckusApi(ABC):
         except KeyError:
             return []
 
-    async def get_arc_ports(self) -> list[AvpPort | dict]:
+    async def get_arc_ports(self) -> list[ArcPort | dict]:
         """Return a list of Application Recognition & Control User Defined Ports"""
         try:
             return await self._get_conf(ConfigItem.AVPPORT_LIST, ["avpport"])
