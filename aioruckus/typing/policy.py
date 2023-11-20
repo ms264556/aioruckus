@@ -28,12 +28,12 @@ IpRule = TypedDict('IpRule', {
     'protocol': str, 'src-addr': str, 'src-port': str, 'dst-addr': str, 'dst-port': str, 'icmp-type': str
     }, total=False)
 
-Ip4Policy = TypedDict('IpPolicy', {
+Ip4Policy = TypedDict('Ip4Policy', {
     'id': str, 'name': str, 'default-mode': Literal['accept', 'deny'], 'internal-id': str, 'guestservice-id': str, 'type': str,
     'EDITABLE': str, 'rule': list[IpRule]
     }, total=False)
 
-Ip6Policy = TypedDict('IpPolicy', {
+Ip6Policy = TypedDict('Ip6Policy', {
     'id': str, 'name': str, 'default-mode': Literal['accept', 'deny'], 'internal-id': str, 'guestservice-id': str, 'type': str,
     'EDITABLE': str, 'rule6': list[IpRule]
     }, total=False)
