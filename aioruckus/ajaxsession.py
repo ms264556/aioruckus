@@ -197,3 +197,19 @@ class AjaxSession(AbcSession):
             timeout
         )
     
+    async def request_file(self, file_url: str, timeout: int | None = None, retrying: bool = False) -> str:
+        async with self.websession.get(
+            file_url,
+            timeout=timeout,
+            allow_redirects=False
+        ) as response:
+            if response.status == 302:
+                # if the session is dead then we're redirected to the login page
+                if retrying:
+                    # we tried logging in again, but the redirect still happens - maybe password
+                    # changed?
+                    raise AuthenticationError(ERROR_POST_REDIRECTED)
+                await self.login()  # try logging in again, then retry post
+                return await self.request_file(file_url, timeout, retrying=True)
+            return await response.read()
+    

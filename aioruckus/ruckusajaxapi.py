@@ -137,6 +137,11 @@ class RuckusAjaxApi(RuckusApi):
         )
         return syslog["xmsg"]["res"]
 
+    async def get_backup(self) -> bytes:
+        """Return a backup"""
+        request = self.session.base_url + "/_savebackup.jsp?time=" +  self._ruckus_backup_timestamp()
+        return await self.session.request_file(request, 60)
+
     async def do_block_client(self, mac: str) -> None:
         """Block a client"""
         mac = self._normalize_mac(mac)
@@ -586,6 +591,10 @@ class RuckusAjaxApi(RuckusApi):
     @staticmethod
     def _ruckus_timestamp(time_part: bool = True, random_part: bool = True) -> str:
         return f"{int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000) if time_part else ''}{('.' if time_part and random_part else '')}{int(9000 * random.random()) + 1000 if random_part else ''}"
+
+    @staticmethod
+    def _ruckus_backup_timestamp() -> str:
+        return datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%y_%H_%M")
 
     @staticmethod
     def _normalize_mac(mac: str) -> str:
