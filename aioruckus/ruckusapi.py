@@ -7,7 +7,7 @@ from typing import Any, List
 import xmltodict
 
 from .exceptions import SchemaError
-from .typing.policy import ArcApplication, ArcPolicy, ArcPort, DevicePolicy, Dpsk, Ip4Policy, Ip6Policy, L2Policy, L2Rule, PrecedencePolicy, Role, UrlBlockCategory, UrlFilter
+from .typing_policy import ArcApplication, ArcPolicy, ArcPort, DevicePolicy, Dpsk, Ip4Policy, Ip6Policy, L2Policy, L2Rule, PrecedencePolicy, Role, UrlBlockCategory, UrlFilter
 
 from .abcsession import AbcSession, ConfigItem
 from .const import ERROR_POST_BADRESULT, URL_FILTERING_CATEGORIES, SystemStat
