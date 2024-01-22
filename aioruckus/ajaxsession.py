@@ -15,7 +15,7 @@ from .const import (
     ERROR_CONNECT_EOF,
     ERROR_CONNECT_TEMPORARY,
     ERROR_CONNECT_TIMEOUT,
-    ERROR_LOGIN_INCORRECT,
+    ERROR_LOGIN_INCORRECT
 )
 
 if TYPE_CHECKING:
@@ -40,10 +40,19 @@ class AjaxSession(AbcSession):
         self.password = password
         self.__auto_cleanup_websession = auto_cleanup_websession
 
-        self.__login_url = None
+        # Common Session State
         self.base_url = None
+        self._api = None
+
+        # ZoneDirector / Unleashed Session State
+        self.__login_url = None
         self.cmdstat_url = None
         self.conf_url = None
+
+        # SmartZone State
+        self.__service_ticket = None
+
+        # API Implementation
 
     async def __aenter__(self) -> "AjaxSession":
         await self.login()
@@ -59,6 +68,9 @@ class AjaxSession(AbcSession):
             async with self.websession.head(
                 f"https://{self.host}", timeout=3, allow_redirects=False
             ) as head:
+                if (head.status == 400):
+                    # Request Refused - maybe SmartZone
+                    return await self.sz_login()
                 redirect_to = head.headers["Location"]
             if urlparse(redirect_to).path:
                 self.__login_url = redirect_to
@@ -74,6 +86,8 @@ class AjaxSession(AbcSession):
                 raise ConnectionRefusedError(ERROR_CONNECT_TEMPORARY)
             self.cmdstat_url = self.base_url + "/_cmdstat.jsp"
             self.conf_url = self.base_url + "/_conf.jsp"
+        except KeyError as kerr:
+            raise ConnectionError(ERROR_CONNECT_EOF) from kerr
         except aiohttp.client_exceptions.ClientConnectorError as cerr:
             raise ConnectionError(ERROR_CONNECT_EOF) from cerr
         except asyncio.exceptions.TimeoutError as terr:
@@ -116,7 +130,55 @@ class AjaxSession(AbcSession):
                         # token page is a redirect, maybe temporary Unleashed Rebuilding placeholder
                         # page is showing
                         raise ConnectionRefusedError(ERROR_CONNECT_TEMPORARY)
+
+            # pylint: disable=import-outside-toplevel
+            from .nativeajaxapi import NativeAjaxApi
+            self._api = NativeAjaxApi(self)
             return self
+
+    async def sz_login(self) -> None:
+        """Create SmartZone session."""
+        try:
+            base_url = f"https://{self.host}:8443/wsg/api/public"
+            async with self.websession.get(
+                f"{base_url}/apiInfo", timeout=3, allow_redirects=False
+            ) as api_info:
+                api_versions = await api_info.json()
+                self.base_url = f"{base_url}/{api_versions['apiSupportVersions'][-1]}"
+                jsessionid = api_info.cookies["JSESSIONID"]
+                self.websession.cookie_jar.update_cookies({jsessionid.key: jsessionid.value})
+                self.websession.headers["Content-Type"] = "application/json;charset=UTF-8"
+                async with self.websession.post(
+                    f"{self.base_url}/serviceTicket",
+                    json={
+                        "username": self.username,
+                        "password": self.password
+                    },
+                    timeout=3,
+                    allow_redirects=False
+                ) as service_ticket:
+                    ticket_info = await service_ticket.json()
+                    if service_ticket.status != 200:
+                        errorCode = ticket_info["errorCode"]
+                        if (200 <= errorCode < 300):
+                            raise AuthenticationError(ticket_info["errorType"])
+                        else:
+                            raise ConnectionError(ticket_info["errorType"])
+                    self.__service_ticket = ticket_info["serviceTicket"]
+            # pylint: disable=import-outside-toplevel
+            from .smartzoneajaxapi import SmartZoneAjaxApi
+            self._api = SmartZoneAjaxApi(self)
+            return self
+        except KeyError as kerr:
+            raise ConnectionError(ERROR_CONNECT_EOF) from kerr
+        except IndexError as ierr:
+            raise ConnectionError(ERROR_CONNECT_EOF) from ierr
+        except aiohttp.ContentTypeError as cterr:
+            raise ConnectionError(ERROR_CONNECT_EOF) from cterr
+        except aiohttp.client_exceptions.ClientConnectorError as cerr:
+            raise ConnectionError(ERROR_CONNECT_EOF) from cerr
+        except asyncio.exceptions.TimeoutError as terr:
+            raise ConnectionError(ERROR_CONNECT_TIMEOUT) from terr
 
     async def close(self) -> None:
         """Logout of ZoneDirector/Unleashed and close websessiom"""
@@ -166,10 +228,6 @@ class AjaxSession(AbcSession):
     @property
     def api(self) -> "RuckusAjaxApi":
         """Return a RuckusApi instance."""
-        if not self._api:
-            # pylint: disable=import-outside-toplevel
-            from .ruckusajaxapi import RuckusAjaxApi
-            self._api = RuckusAjaxApi(self)
         return self._api
 
     @classmethod
@@ -213,3 +271,65 @@ class AjaxSession(AbcSession):
                 return await self.request_file(file_url, timeout, retrying=True)
             return await response.read()
     
+    async def sz_query(
+            self,
+            cmd: str,
+            query: dict = None,
+            timeout: int | None = None,
+            retrying: bool = False
+    ) -> dict:
+        return (await self.sz_post(f"query/{cmd}", query))["list"]
+
+    async def sz_get(
+        self,
+        cmd: str,
+        uri_params: dict = None,
+        timeout: int | None = None,
+        retrying: bool = False
+    ) -> dict:
+        """Get SZ Data"""
+        params = {"serviceTicket": self.__service_ticket}
+        if uri_params and isinstance(uri_params, dict):
+            params.update(uri_params)
+        async with self.websession.get(
+            f"{self.base_url}/{cmd}",
+            params=params,
+            timeout=timeout,
+            allow_redirects=False
+        ) as response:
+            if response.status != 200:
+                # assume session is dead and re-login
+                if retrying:
+                    # we tried logging in again, but the redirect still happens.
+                    # an exception should have been raised from the login!
+                    raise AuthenticationError(ERROR_POST_REDIRECTED)
+                await self.sz_login()  # try logging in again, then retry post
+                return await self.sz_get(cmd, uri_params, timeout, retrying=True)
+            result_json = await response.json()
+            return result_json
+    
+    async def sz_post(
+        self,
+        cmd: str,
+        json: dict = None,
+        timeout: int | None = None,
+        retrying: bool = False
+    ) -> dict:
+        """Post SZ Data"""
+        async with self.websession.post(
+            f"{self.base_url}/{cmd}",
+            params={"serviceTicket": self.__service_ticket},
+            json=json or {},
+            timeout=timeout,
+            allow_redirects=False
+        ) as response:
+            if response.status != 200:
+                # assume session is dead and re-login
+                if retrying:
+                    # we tried logging in again, but the redirect still happens.
+                    # an exception should have been raised from the login!
+                    raise AuthenticationError(ERROR_POST_REDIRECTED)
+                await self.sz_login()  # try logging in again, then retry post
+                return await self.sz_post(cmd, json, timeout, retrying=True)
+            result_json = await response.json()
+            return result_json
