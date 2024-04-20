@@ -42,6 +42,12 @@ class WlanEncryption(Enum):
     WPA23_MIXED = "wpa23-mixed"
     WPA3 = "wpa3"
 
+class PatchNewAttributeMode(Enum):
+    """Treatment of patch attributes which are missing from existing XML"""
+    ERROR = "error"
+    IGNORE = "ignore"
+    ADD = "add"
+
 URL_FILTERING_CATEGORIES = {
     "1": "Real Estate",
     "2": "Computer and Internet Security",

@@ -19,6 +19,7 @@ from .const import (
     ERROR_SAEPASSPHRASE_MISSING,
     ERROR_INVALID_WLAN,
     ERROR_PASSPHRASE_NAME,
+    PatchNewAttributeMode,
     SystemStat,
     WlanEncryption
 )
@@ -240,13 +241,13 @@ class NativeAjaxApi(RuckusAjaxApi):
         await self._add_wlan_template(wlansvc)
 
     async def do_edit_wlan(
-        self, name: str, patch: dict, ignore_unknown_attributes: bool = False
+        self, name: str, patch: dict, patch_new_attributes: PatchNewAttributeMode = PatchNewAttributeMode.ERROR
     ) -> None:
         """Edit a WLAN"""
         wlansvc = await self._get_wlan_template(name)
         if wlansvc:
             self._normalize_encryption(wlansvc, patch)
-            self._patch_template(wlansvc, patch, ignore_unknown_attributes)
+            self._patch_template(wlansvc, patch, patch_new_attributes)
             await self._update_wlan_template(wlansvc)
 
     async def do_delete_wlan(self, name: str) -> bool:
@@ -413,7 +414,7 @@ class NativeAjaxApi(RuckusAjaxApi):
         self,
         element: ET.Element,
         patch: dict,
-        ignore_unknown_attributes: bool = False,
+        patch_new_attributes: PatchNewAttributeMode = PatchNewAttributeMode.ERROR,
         current_path: str = ""
     ) -> None:
         visited_children = set()
@@ -422,7 +423,7 @@ class NativeAjaxApi(RuckusAjaxApi):
                 self._patch_template(
                     child,
                     patch[child.tag],
-                    ignore_unknown_attributes,
+                    patch_new_attributes,
                     f"{current_path}/{child.tag}"
                 )
                 visited_children.add(child.tag)
@@ -434,14 +435,16 @@ class NativeAjaxApi(RuckusAjaxApi):
                 if isinstance(value, List):
                     raise ValueError(f"Applying lists is unsupported: {current_path}/{name}")
                 if current_value is None:
-                    if not ignore_unknown_attributes:
+                    if patch_new_attributes == PatchNewAttributeMode.ERROR:
                         raise ValueError(f"Unknown attribute: {current_path}/{name}")
+                    elif patch_new_attributes == PatchNewAttributeMode.IGNORE:
+                        continue
                 else:
-                    new_value = self._normalize_conf_value(current_value, value)
-                    element.set(name, new_value)
-                    x_name = f"x-{name}"
-                    if x_name not in patch and x_name in element.attrib:
-                        element.set(x_name, new_value)
+                    value = self._normalize_conf_value(current_value, value)
+                element.set(name, value)
+                x_name = f"x-{name}"
+                if x_name not in patch and x_name in element.attrib:
+                    element.set(x_name, value)
 
     async def _update_wlan_template(self, wlansvc: ET.Element):
         """Update WLAN template"""

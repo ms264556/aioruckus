@@ -8,6 +8,7 @@ from .const import (
     ERROR_INVALID_MAC,
     ERROR_PASSPHRASE_LEN,
     ERROR_PASSPHRASE_JS,
+    PatchNewAttributeMode,
     SystemStat
 )
 from .ruckusapi import RuckusApi
@@ -132,6 +133,12 @@ class RuckusAjaxApi(RuckusApi):
     @abstractmethod
     async def do_enable_wlan(self, name: str) -> None:
         """Enable a WLAN"""
+        pass
+
+    @abstractmethod
+    async def do_edit_wlan(
+        self, name: str, patch: dict, patch_new_attributes: PatchNewAttributeMode = PatchNewAttributeMode.ERROR
+    ) -> None:
         pass
 
     @abstractmethod
