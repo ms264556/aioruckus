@@ -333,6 +333,11 @@ class RuckusApi(ABC):
             # return an empty array rather than None, for ease of use
             return key, []
         if (
+            (key == "accept" or key == "deny") and not value and
+            path and len(path) > 0 and path[-1][0] == "acl"
+        ):
+            return key, []
+        if (
             key == "status" and
             value and value.isnumeric() and
             path and len(path) > 0 and path[-1][0] == "client"

@@ -18,6 +18,9 @@ ERROR_PASSPHRASE_JS = "Embedding html or javascript code, e.g. < />, is not allo
 ERROR_PASSPHRASE_MISSING = "WPA2 and Mixed WPA2/3 WLANs require a passphrase"
 ERROR_SAEPASSPHRASE_MISSING = "WPA3 and Mixed WPA2/3 WLANs require an SAE passphrase"
 ERROR_PASSPHRASE_NAME = "You must also provide a name if you wish to override the passphrase"
+ERROR_ACL_NOT_FOUND = "ACL not found"
+ERROR_ACL_TOO_BIG = "ACLs may only contain 128 stations"
+ERROR_ACL_SYSTEM = "Please use do_block_client() and do_unblock_client() to modify the System ACL"
 
 class SystemStat(Enum):
     """Ruckus System Info section keys"""

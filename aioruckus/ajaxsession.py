@@ -132,8 +132,8 @@ class AjaxSession(AbcSession):
                         raise ConnectionRefusedError(ERROR_CONNECT_TEMPORARY)
 
             # pylint: disable=import-outside-toplevel
-            from .nativeajaxapi import NativeAjaxApi
-            self._api = NativeAjaxApi(self)
+            from .ruckusajaxapi import RuckusAjaxApi
+            self._api = RuckusAjaxApi(self)
             return self
 
     async def sz_login(self) -> None:
