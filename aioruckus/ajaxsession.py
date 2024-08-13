@@ -68,7 +68,7 @@ class AjaxSession(AbcSession):
             async with self.websession.head(
                 f"https://{self.host}", timeout=3, allow_redirects=False
             ) as head:
-                if (head.status == 400):
+                if (head.status >= 400 and head.status < 500):
                     # Request Refused - maybe SmartZone
                     return await self.sz_login()
                 redirect_to = head.headers["Location"]
