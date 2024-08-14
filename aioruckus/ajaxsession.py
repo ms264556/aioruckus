@@ -52,6 +52,10 @@ class AjaxSession(AbcSession):
         # SmartZone State
         self.__service_ticket = None
 
+        # Ruckus One State
+        self.__tenant_id = None
+        self.__bearer_token = None
+
         # API Implementation
 
     async def __aenter__(self) -> "AjaxSession":
@@ -65,6 +69,10 @@ class AjaxSession(AbcSession):
         """Create HTTPS AJAX session."""
         # locate the admin pages: /admin/* for Unleashed and ZD 9.x, /admin10/* for ZD 10.x
         try:
+            if self.host.lower().startswith("https://"):
+                parsed_url = urlparse(self.host)
+                if (parsed_url.netloc == "ruckus.cloud" or parsed_url.netloc.endswith(".ruckus.cloud")):
+                    return await self.r1_login()
             async with self.websession.head(
                 f"https://{self.host}", timeout=3, allow_redirects=False
             ) as head:
@@ -135,6 +143,40 @@ class AjaxSession(AbcSession):
             from .ruckusajaxapi import RuckusAjaxApi
             self._api = RuckusAjaxApi(self)
             return self
+
+    async def r1_login(self) -> None:
+        """Create Ruckus One session."""
+        try:
+            parsed_url = urlparse(self.host)
+            self.base_url = f"{parsed_url.scheme}://{parsed_url.netloc if parsed_url.netloc.startswith('api.') else 'api.' + parsed_url.netloc}"
+            self.__tenant_id = parsed_url.path[1:33]
+
+            async with self.websession.post(
+                f"{self.base_url}/oauth2/token/{self.__tenant_id}",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                data={"grant_type": "client_credentials", "client_id": self.username, "client_secret": self.password},
+                timeout=20,
+                allow_redirects=False
+            ) as oauth2:
+                if oauth2.status != 200:
+                    raise AuthenticationError(ERROR_LOGIN_INCORRECT)
+                oauth_info = await oauth2.json()
+                self.__bearer_token = f"Bearer {oauth_info['access_token']}"
+            # pylint: disable=import-outside-toplevel
+            from .r1ajaxapi import R1AjaxApi
+            self._api = R1AjaxApi(self)
+            return self
+        except KeyError as kerr:
+            raise ConnectionError(ERROR_CONNECT_EOF) from kerr
+        except IndexError as ierr:
+            raise ConnectionError(ERROR_CONNECT_EOF) from ierr
+        except aiohttp.ContentTypeError as cterr:
+            raise ConnectionError(ERROR_CONNECT_EOF) from cterr
+        except aiohttp.client_exceptions.ClientConnectorError as cerr:
+            raise ConnectionError(ERROR_CONNECT_EOF) from cerr
+        except asyncio.exceptions.TimeoutError as terr:
+            raise ConnectionError(ERROR_CONNECT_TIMEOUT) from terr
+
 
     async def sz_login(self) -> None:
         """Create SmartZone session."""
@@ -279,6 +321,32 @@ class AjaxSession(AbcSession):
             retrying: bool = False
     ) -> dict:
         return (await self.sz_post(f"query/{cmd}", query))["list"]
+
+    async def r1_get(
+        self,
+        cmd: str,
+        params: dict = None,
+        timeout: int | None = None,
+        retrying: bool = False
+    ) -> dict:
+        """Get R1 Data"""
+        async with self.websession.get(
+            f"{self.base_url}/{cmd}",
+            headers={"Authorization": self.__bearer_token},
+            params=params,
+            timeout=timeout,
+            allow_redirects=False
+        ) as response:
+            if response.status != 200:
+                # assume session is dead and re-login
+                if retrying:
+                    # we tried logging in again, but the redirect still happens.
+                    # an exception should have been raised from the login!
+                    raise AuthenticationError(ERROR_POST_REDIRECTED)
+                await self.r1_login()  # try logging in again, then retry post
+                return await self.r1_get(cmd, params, timeout, retrying=True)
+            result_json = await response.json()
+            return result_json
 
     async def sz_get(
         self,
