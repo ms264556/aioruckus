@@ -138,10 +138,6 @@ class AjaxSession(AbcSession):
                         # token page is a redirect, maybe temporary Unleashed Rebuilding placeholder
                         # page is showing
                         raise ConnectionRefusedError(ERROR_CONNECT_TEMPORARY)
-
-            # pylint: disable=import-outside-toplevel
-            from .ruckusajaxapi import RuckusAjaxApi
-            self._api = RuckusAjaxApi(self)
             return self
 
     async def r1_login(self) -> None:
@@ -270,6 +266,10 @@ class AjaxSession(AbcSession):
     @property
     def api(self) -> "RuckusAjaxApi":
         """Return a RuckusApi instance."""
+        if not self._api:
+            # pylint: disable=import-outside-toplevel
+            from .ruckusajaxapi import RuckusAjaxApi
+            self._api = RuckusAjaxApi(self)
         return self._api
 
     @classmethod
