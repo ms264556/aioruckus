@@ -21,8 +21,12 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
     
     async def get_aps(self) -> List[dict]:
         """Return a list of APs"""
-        ap_ids = await self.session.sz_get("aps")
-        return ap_ids
+        aps = await self.session.sz_query("ap")
+        compat_aps = [
+            {**ap, "mac": ap["apMac"], "devname": ap["deviceName"], "version": ap["firmwareVersion"]} 
+            for ap in aps
+        ]
+        return compat_aps
 
     async def get_ap_groups(self) -> List:
         """Return a list of AP groups"""
@@ -83,11 +87,12 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
     async def get_system_info(self, *sections: SystemStat) -> dict:
         """Return system information"""
         cluster_info = await self.__get_cluster_state()
+        cluster_info["name"] = cluster_info["clusterName"]
         current_controller_id = cluster_info["currentNodeId"]
         controllers = (await self.session.sz_get("controller"))["list"]
         sysinfo = next((controller for controller in controllers if controller["id"] == current_controller_id), controllers[0])
         sysinfo["serial"] = sysinfo["serialNumber"]
-        return { "sysinfo": sysinfo }            
+        return { "sysinfo": sysinfo, "identity": cluster_info }            
 
     async def get_mesh_info(self) -> dict:
         """Return dummy mesh information"""
