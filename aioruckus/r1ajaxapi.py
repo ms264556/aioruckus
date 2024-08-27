@@ -106,10 +106,6 @@ class R1AjaxApi(RuckusAjaxApi):
         tenant = await self.session.r1_get("tenants/self")
         return tenant
 
-    async def __get_cluster_state(self) -> dict:
-        """Return Cluster State"""
-        return await self.session.sz_get("cluster/state")
-
     async def get_zerotouch_mesh_ap_serials(self) -> dict:
         """Return a list of Pre-approved AP serial numbers"""
         raise NotImplementedError
@@ -159,7 +155,7 @@ class R1AjaxApi(RuckusAjaxApi):
 
     async def get_vap_stats(self) -> List:
         """Return a list of Virtual AP (per-radio WLAN) statistics"""
-        return await self.session.sz_query("wlan")
+        raise NotImplementedError
 
     async def get_wlan_group_stats(self) -> List:
         """Return a list of WLAN group statistics"""

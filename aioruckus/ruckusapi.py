@@ -24,6 +24,7 @@ class RuckusApi(ABC):
     async def get_ap_groups(self) -> List:
         """Return a list of AP groups"""
         ap_map = {ap['id']: ap for ap in await self.get_aps()}
+        wlan_map = {wlan['id']: wlan for wlan in await self.get_wlans()}
         wlang_map = {wlang['id']: wlang for wlang in await self.get_wlan_groups()}
         ap_groups = await self._get_conf(
             ConfigItem.APGROUP_LIST, ["apgroup", "radio", "model", "port", "ap", "wlansvc"]
@@ -50,8 +51,8 @@ class RuckusApi(ABC):
                     ap_group["wlansvc"] = []
                 else:
                     ap_group["wlansvc"] = [
-                        deepcopy(wlang_map[wlang["id"]])
-                        for wlang in ap_group["wlangroup"]["wlansvc"]
+                        deepcopy(wlan_map[wlan["id"]])
+                        for wlan in ap_group["wlangroup"]["wlansvc"]
                     ]
                 del ap_group["wlangroup"]
             # replace ZoneDirector wlangroup links with wlangroup objects
