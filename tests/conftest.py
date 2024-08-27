@@ -6,10 +6,10 @@ import re
 
 from aioruckus.ajaxsession import AjaxSession
 
-
 @pytest.fixture(autouse=True)
-def unleashed_context():
+def aiohttp_context():
     with aioresponses() as m:
+        # Unleashed and ZoneDirector
         m.head(
             re.compile(r"^https?://192.168.0.2/?$"),
             status=302,
@@ -42,7 +42,52 @@ def unleashed_context():
         m.head(
             "https://my.controller/admin/login.jsp?logout=1", status=302, repeat=True
         )
+        # Ruckus One
+        m.post(
+            re.compile(r"^https://api\.(?:eu\.|asia\.)ruckus\.cloud/oauth2/token/5dd1000334cc2a01fcf28a740a6c95cf$"),
+            payload={'access_token': 'dummy_bearer_token', 'token_type': 'Bearer', 'expires_in': 7199},
+            repeat=True,
+        )
+        m.post(
+            re.compile(r"^https://api\.(?:eu\.|asia\.)ruckus\.cloud/oauth2/token/[a-fA-F0-9]{32}$"),
+            status=302,
+            repeat=True,
+        )
+        m.post(
+            re.compile(r"^https://api\.elsewhere\.ruckus\.cloud/oauth2/token/[a-fA-F0-9]{32}$"),
+            exception=ClientConnectorError(None, OSError()),
+            repeat=True,
+        )
+        m.get(
+            re.compile(r"^https://api\.(?:eu\.|asia\.)ruckus\.cloud/venues/aps$"),
+            payload=[
+                {'mac': '8c:7a:15:3e:21:d0', 'serialNumber': '302139502811', 'name': 'AnR650', 'model': 'R650', 'firmware': '6.2.4.103.259'},
+                {'mac': '80:03:84:3f:88:d0', 'serialNumber': '502039500072', 'name': 'My Second R650', 'model': 'R650', 'firmware': '6.2.4.103.259'}
+            ],
+            repeat=True,
+        )
+        m.get(
+            re.compile(r"^https://api\.(?:eu\.|asia\.)ruckus\.cloud/clients$"),
+            payload=[
+                {'mac': 'f0:1d:ab:ad:d0:0d', 'hostname': 'MySmartPhone', 'apMac': '8c:7a:15:3e:21:d0', 'ip': '192.168.0.23'},
+                {'mac': '0a:23:ab:ad:d0:0d', 'hostname': '', 'apMac': '80:03:84:3f:88:d0', 'ip': '192.168.0.24'}
+            ],
+            repeat=True,
+        )
+        m.get(
+            re.compile(r"^https://api\.(?:eu\.|asia\.)ruckus\.cloud/tenants/self$"),
+            payload={'name': 'dummy_tenant', 'entitlementId': 'ee8771514cca2a7a'},
+            repeat=True,
+        )
         yield m
+
+
+@pytest.fixture
+def create_r1_session():
+    def _create_r1_session():
+        return AjaxSession.async_create("https://asia.ruckus.cloud/5dd1000334cc2a01fcf28a740a6c95cf/t/dashboard", "0206ee8771514cca2a7a2f2d144c80f0", "ce97e150e2362f1b07d6c4f6a32934d2")
+
+    return _create_r1_session
 
 
 @pytest.fixture
@@ -51,7 +96,6 @@ def create_ajax_session():
         return AjaxSession.async_create("192.168.0.2", "super", "sp-admin")
 
     return _create_ajax_session
-
 
 def unleashed_callback_factory(child_count):
     def _callback(url, **kwargs):
@@ -89,9 +133,9 @@ def unleashed_callback_factory(child_count):
 
 
 @pytest.fixture
-def set_conf_results(unleashed_context):
+def set_ajax_results(aiohttp_context):
     def _handle_conf(child_count):
-        unleashed_context.post(
+        aiohttp_context.post(
             re.compile(r"^https?://[^/]+/admin/_(?:conf|cmdstat).jsp"),
             callback=unleashed_callback_factory(child_count),
         )
