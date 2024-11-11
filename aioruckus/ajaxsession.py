@@ -74,12 +74,14 @@ class AjaxSession(AbcSession):
                 if (parsed_url.netloc == "ruckus.cloud" or parsed_url.netloc.endswith(".ruckus.cloud")):
                     return await self.r1_login()
             if self.host.endswith(":8443"):
+                # Allow short-circuit SmartZone identification, in case
+                # it's sharing a public IP address with other web services
                 return await self.sz_login()
             async with self.websession.head(
                 f"https://{self.host}", timeout=3, allow_redirects=False
             ) as head:
                 if (head.status >= 400 and head.status < 500):
-                    # Request Refused - maybe SmartZone
+                    # Request Refused - maybe one-interface SmartZone
                     return await self.sz_login()
                 redirect_to = head.headers["Location"]
             if urlparse(redirect_to).path:
@@ -99,7 +101,11 @@ class AjaxSession(AbcSession):
         except KeyError as kerr:
             raise ConnectionError(ERROR_CONNECT_EOF) from kerr
         except aiohttp.client_exceptions.ClientConnectorError as cerr:
-            raise ConnectionError(ERROR_CONNECT_EOF) from cerr
+            # Connection Error - maybe three-interface SmartZone
+            try:
+                return await self.sz_login()
+            except:
+                raise ConnectionError(ERROR_CONNECT_EOF) from cerr
         except asyncio.exceptions.TimeoutError as terr:
             raise ConnectionError(ERROR_CONNECT_TIMEOUT) from terr
 
