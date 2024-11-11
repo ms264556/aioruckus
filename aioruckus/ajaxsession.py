@@ -73,6 +73,8 @@ class AjaxSession(AbcSession):
                 parsed_url = urlparse(self.host)
                 if (parsed_url.netloc == "ruckus.cloud" or parsed_url.netloc.endswith(".ruckus.cloud")):
                     return await self.r1_login()
+            if self.host.endswith(":8443"):
+                return await self.sz_login()
             async with self.websession.head(
                 f"https://{self.host}", timeout=3, allow_redirects=False
             ) as head:
@@ -144,7 +146,12 @@ class AjaxSession(AbcSession):
         """Create Ruckus One session."""
         try:
             parsed_url = urlparse(self.host)
-            self.base_url = f"{parsed_url.scheme}://{parsed_url.netloc if parsed_url.netloc.startswith('api.') else 'api.' + parsed_url.netloc}"
+            api_netloc = "api.ruckus.cloud"
+            if parsed_url.netloc.endswith("eu.ruckus.cloud"):
+                api_netloc = "api.eu.ruckus.cloud"
+            elif parsed_url.netloc.endswith("asia.ruckus.cloud"):
+                api_netloc = "api.asia.ruckus.cloud"
+            self.base_url = f"{parsed_url.scheme}://{api_netloc}"
             self.__tenant_id = parsed_url.path[1:33]
 
             async with self.websession.post(
@@ -177,7 +184,8 @@ class AjaxSession(AbcSession):
     async def sz_login(self) -> None:
         """Create SmartZone session."""
         try:
-            base_url = f"https://{self.host}:8443/wsg/api/public"
+            api_host = self.host.split(":")[0]
+            base_url = f"https://{api_host}:8443/wsg/api/public"
             async with self.websession.get(
                 f"{base_url}/apiInfo", timeout=3, allow_redirects=False
             ) as api_info:
@@ -197,11 +205,10 @@ class AjaxSession(AbcSession):
                 ) as service_ticket:
                     ticket_info = await service_ticket.json()
                     if service_ticket.status != 200:
-                        errorCode = ticket_info["errorCode"]
-                        if (200 <= errorCode < 300):
+                        error_code = ticket_info["errorCode"]
+                        if 200 <= error_code < 300:
                             raise AuthenticationError(ticket_info["errorType"])
-                        else:
-                            raise ConnectionError(ticket_info["errorType"])
+                        raise ConnectionError(ticket_info["errorType"])
                     self.__service_ticket = ticket_info["serviceTicket"]
             # pylint: disable=import-outside-toplevel
             from .smartzoneajaxapi import SmartZoneAjaxApi
@@ -296,8 +303,9 @@ class AjaxSession(AbcSession):
             f"updater='{item.value}.0.5' comp='{item.value}'/>",
             timeout
         )
-    
+
     async def request_file(self, file_url: str, timeout: int | None = None, retrying: bool = False) -> str:
+        """File Download"""
         async with self.websession.get(
             file_url,
             timeout=timeout,
@@ -312,15 +320,15 @@ class AjaxSession(AbcSession):
                 await self.login()  # try logging in again, then retry post
                 return await self.request_file(file_url, timeout, retrying=True)
             return await response.read()
-    
+
     async def sz_query(
             self,
             cmd: str,
             query: dict = None,
-            timeout: int | None = None,
-            retrying: bool = False
+            timeout: int | None = None
     ) -> dict:
-        return (await self.sz_post(f"query/{cmd}", query))["list"]
+        """Query SZ Data"""
+        return (await self.sz_post(f"query/{cmd}", query, timeout))["list"]
 
     async def r1_get(
         self,
@@ -375,7 +383,7 @@ class AjaxSession(AbcSession):
                 return await self.sz_get(cmd, uri_params, timeout, retrying=True)
             result_json = await response.json()
             return result_json
-    
+
     async def sz_post(
         self,
         cmd: str,
