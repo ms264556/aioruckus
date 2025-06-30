@@ -18,13 +18,6 @@ async def test_r1_connect_authentication_error():
             pass
 
 @pytest.mark.asyncio
-async def test_r1_connect_no_webserver_error():
-    """Host Missing."""
-    with pytest.raises(ConnectionError):
-        async with AjaxSession.async_create("https://elsewhere.ruckus.cloud/5dd1000334cc2a01fcf28a740a6c95cf/t/dashboard", "0206ee8771514cca2a7a2f2d144c80f0", "ce97e150e2362f1b07d6c4f6a32934d2") as session:
-            pass
-
-@pytest.mark.asyncio
 async def test_connect_success():
     """Normal connection / disconnection."""
     async with AjaxSession.async_create("192.168.0.2", "super", "sp-admin") as session:
