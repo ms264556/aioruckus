@@ -6,7 +6,6 @@ import struct
 import tarfile
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.backends import default_backend
 from os import SEEK_CUR
 from typing import Any, Mapping, TYPE_CHECKING
 
@@ -87,7 +86,7 @@ class BackupSession(AbcSession):
 
         decrypted_length = self.__get_block_length(backup_file)
         encrypted_bytes = backup_file.read()
-        cipher = Cipher(algorithms.AES(key), modes.ECB(), backend=default_backend())
+        cipher = Cipher(algorithms.AES(key), modes.ECB())
         decryptor = cipher.decryptor()
         decrypted_bytes = decryptor.update(encrypted_bytes) + decryptor.finalize()
 

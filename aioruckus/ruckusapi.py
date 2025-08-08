@@ -4,6 +4,11 @@ from abc import ABC
 from copy import deepcopy
 from typing import Any, List
 
+from cryptography.hazmat.primitives.padding import PKCS7
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+import base64
+import binascii
 import xmltodict
 
 from .exceptions import SchemaError
@@ -329,7 +334,7 @@ class RuckusApi(ABC):
     def _process_ruckus_xml(path, key, value):
         if key.startswith("x-"):
             # passphrases are obfuscated and stored with an x- prefix; decrypt these
-            return key[2:], ''.join(chr(ord(letter) - 1) for letter in value) if value else value
+            return key[2:], RuckusApi._decrypt_value(value) if value else value
         if key == "apstamgr-stat" and not value:
             # return an empty array rather than None, for ease of use
             return key, []
@@ -355,6 +360,21 @@ class RuckusApi(ABC):
             )
             return key, description
         return key, value
+
+    @staticmethod
+    def _decrypt_value(encrypted_string: str) -> str:
+        if len(encrypted_string) >= 16 and len(encrypted_string) % 4 == 0 and all(c.isalnum() or c in '/+=' for c in encrypted_string):
+            try:
+                encrypted_bytes = base64.b64decode(encrypted_string, validate=True)
+                if len(encrypted_bytes) in (16, 32, 48):
+                    decryptor = Cipher(algorithms.AES(b'Svdlvt`Jefoujgz`QXE`ALFZ'), modes.ECB()).decryptor()
+                    padded_bytes = decryptor.update(encrypted_bytes) + decryptor.finalize()
+                    unpadder = PKCS7(128).unpadder()
+                    decrypted_bytes = unpadder.update(padded_bytes) + unpadder.finalize()
+                    return decrypted_bytes.decode('utf-8')
+            except binascii.Error:
+                pass
+        return ''.join(chr(ord(letter) - 1) for letter in encrypted_string)
 
     async def _get_conf(
         self, item: ConfigItem, collection_elements: List[str] = None
