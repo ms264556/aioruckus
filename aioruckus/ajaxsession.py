@@ -100,7 +100,7 @@ class AjaxSession(AbcSession):
             self.conf_url = self.base_url + "/_conf.jsp"
         except KeyError as kerr:
             raise ConnectionError(ERROR_CONNECT_EOF) from kerr
-        except aiohttp.client_exceptions.ClientConnectorError as cerr:
+        except aiohttp.ClientConnectorError as cerr:
             # Connection Error - maybe three-interface SmartZone
             try:
                 return await self.sz_login()
@@ -181,7 +181,7 @@ class AjaxSession(AbcSession):
             raise ConnectionError(ERROR_CONNECT_EOF) from ierr
         except aiohttp.ContentTypeError as cterr:
             raise ConnectionError(ERROR_CONNECT_EOF) from cterr
-        except aiohttp.client_exceptions.ClientConnectorError as cerr:
+        except aiohttp.ClientConnectorError as cerr:
             raise ConnectionError(ERROR_CONNECT_EOF) from cerr
         except asyncio.exceptions.TimeoutError as terr:
             raise ConnectionError(ERROR_CONNECT_TIMEOUT) from terr
@@ -197,8 +197,6 @@ class AjaxSession(AbcSession):
             ) as api_info:
                 api_versions = await api_info.json()
                 self.base_url = f"{base_url}/{api_versions['apiSupportVersions'][-1]}"
-                jsessionid = api_info.cookies["JSESSIONID"]
-                self.websession.cookie_jar.update_cookies({jsessionid.key: jsessionid.value})
                 self.websession.headers["Content-Type"] = "application/json;charset=UTF-8"
                 async with self.websession.post(
                     f"{self.base_url}/serviceTicket",
@@ -226,7 +224,7 @@ class AjaxSession(AbcSession):
             raise ConnectionError(ERROR_CONNECT_EOF) from ierr
         except aiohttp.ContentTypeError as cterr:
             raise ConnectionError(ERROR_CONNECT_EOF) from cterr
-        except aiohttp.client_exceptions.ClientConnectorError as cerr:
+        except aiohttp.ClientConnectorError as cerr:
             raise ConnectionError(ERROR_CONNECT_EOF) from cerr
         except asyncio.exceptions.TimeoutError as terr:
             raise ConnectionError(ERROR_CONNECT_TIMEOUT) from terr
@@ -379,6 +377,8 @@ class AjaxSession(AbcSession):
             timeout=timeout,
             allow_redirects=False
         ) as response:
+            if response.status == 403:
+                raise AuthenticationError(ERROR_POST_REDIRECTED)
             if response.status != 200:
                 # assume session is dead and re-login
                 if retrying:
@@ -405,6 +405,8 @@ class AjaxSession(AbcSession):
             timeout=timeout,
             allow_redirects=False
         ) as response:
+            if response.status == 403:
+                raise AuthenticationError(ERROR_POST_REDIRECTED)
             if response.status != 200:
                 # assume session is dead and re-login
                 if retrying:
