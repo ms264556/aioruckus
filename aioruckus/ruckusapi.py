@@ -334,7 +334,7 @@ class RuckusApi(ABC):
     def _process_ruckus_xml(path, key, value):
         if key.startswith("x-"):
             # passphrases are obfuscated and stored with an x- prefix; decrypt these
-            return key[2:], RuckusApi._decrypt_value(value) if value else value
+            return key[2:], RuckusApi._decrypt_value(key, value) if value else value
         if key == "apstamgr-stat" and not value:
             # return an empty array rather than None, for ease of use
             return key, []
@@ -362,8 +362,8 @@ class RuckusApi(ABC):
         return key, value
 
     @staticmethod
-    def _decrypt_value(encrypted_string: str) -> str:
-        if len(encrypted_string) >= 16 and len(encrypted_string) % 4 == 0 and all(c.isalnum() or c in '/+=' for c in encrypted_string):
+    def _decrypt_value(key: str, encrypted_string: str) -> str:
+        if key == "x-password" and len(encrypted_string) >= 16 and len(encrypted_string) % 4 == 0 and all(c.isalnum() or c in '/+=' for c in encrypted_string):
             try:
                 encrypted_bytes = base64.b64decode(encrypted_string, validate=True)
                 if len(encrypted_bytes) in (16, 32, 48):
