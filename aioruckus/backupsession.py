@@ -1,5 +1,5 @@
 """Ruckus AbcSession which connects to Ruckus Unleashed or ZoneDirector backups"""
-
+from __future__ import annotations
 import configparser
 import io
 import struct
@@ -14,6 +14,7 @@ from .abcsession import AbcSession, ConfigItem
 if TYPE_CHECKING:
     from .ruckusbackupapi import RuckusBackupApi
 
+
 class BackupSession(AbcSession):
     """Connect to Ruckus Unleashed or ZoneDirector Backup"""
 
@@ -23,9 +24,10 @@ class BackupSession(AbcSession):
     ) -> None:
         super().__init__()
         self.backup_file = self.open_backup(backup_path)
-        self.backup_tarfile = tarfile.open(fileobj = self.backup_file)
+        self.backup_tarfile = tarfile.open(fileobj=self.backup_file)
+        self.backup_filenames = self.backup_tarfile.getnames()
 
-    def __enter__(self) -> "BackupSession":
+    def __enter__(self) -> BackupSession:
         return self
 
     def __exit__(self, *exc: Any) -> None:
@@ -71,7 +73,7 @@ class BackupSession(AbcSession):
         backup_file.seek(block_length, SEEK_CUR)
 
     @classmethod
-    def __get_block_length(cls, backup_file: io.BufferedReader) -> bytes:
+    def __get_block_length(cls, backup_file: io.BufferedReader) -> int:
         backup_file.seek(1, SEEK_CUR)
         return int.from_bytes(backup_file.read(4), byteorder='big', signed=False)
 
@@ -81,8 +83,8 @@ class BackupSession(AbcSession):
         encrypted_key = backup_file.read(self.__get_block_length(backup_file))
         key = self.__decrypt_key(encrypted_key)
 
-        self.__skip_block(backup_file) # digest
-        self.__skip_block(backup_file) # signature
+        self.__skip_block(backup_file)  # digest
+        self.__skip_block(backup_file)  # signature
 
         decrypted_length = self.__get_block_length(backup_file)
         encrypted_bytes = backup_file.read()
@@ -96,14 +98,14 @@ class BackupSession(AbcSession):
         return output_file
 
     @classmethod
-    def create(cls, backup_path: str) -> "BackupSession":
+    def create(cls, backup_path: str) -> BackupSession:
         """Create a default ClientSession & use this to create a BackupSession instance"""
         return BackupSession(backup_path)
 
     @property
-    def api(self) -> "RuckusBackupApi":
+    def api(self) -> RuckusBackupApi:
         """Return a RuckusBackupApi instance."""
-        if not self._api:
+        if self._api is None:
             # pylint: disable=import-outside-toplevel
             from .ruckusbackupapi import RuckusBackupApi
             self._api = RuckusBackupApi(self)
@@ -119,7 +121,12 @@ class BackupSession(AbcSession):
         config = configparser.ConfigParser()
         config.read_string(xml)
         return config["metadata"]
-        
+
     def _get_backup_file(self, member: str) -> str:
         """Extract a file from the backup and return its contents"""
-        return self.backup_tarfile.extractfile(member).read().decode("utf-8")
+        if member in self.backup_filenames:
+            extracted_file = self.backup_tarfile.extractfile(member)
+            if extracted_file is not None:
+                return extracted_file.read().decode("utf-8")
+        # raise KeyError for consistency with AjaxSession behaviour
+        raise KeyError(f"Member '{member}' not found in backup archive.")

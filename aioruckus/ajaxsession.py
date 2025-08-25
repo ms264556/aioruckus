@@ -1,5 +1,5 @@
 """Ruckus AbcSession which connects to Ruckus Unleashed or ZoneDirector via HTTPS AJAX"""
-
+from __future__ import annotations
 from typing import Any, TYPE_CHECKING
 from urllib.parse import urlparse
 import asyncio
@@ -41,24 +41,24 @@ class AjaxSession(AbcSession):
         self.__auto_cleanup_websession = auto_cleanup_websession
 
         # Common Session State
-        self.base_url = None
-        self._api = None
+        self.base_url: str | None = None
+        self._api: RuckusAjaxApi | None = None
 
         # ZoneDirector / Unleashed Session State
-        self.__login_url = None
-        self.cmdstat_url = None
-        self.conf_url = None
+        self.__login_url: str | None = None
+        self.cmdstat_url: str | None = None
+        self.conf_url: str | None = None
 
         # SmartZone State
-        self.__service_ticket = None
+        self.__service_ticket: str | None = None
 
         # Ruckus One State
-        self.__tenant_id = None
-        self.__bearer_token = None
+        self.__tenant_id: str | None = None
+        self.__bearer_token: str | None = None
 
         # API Implementation
 
-    async def __aenter__(self) -> "AjaxSession":
+    async def __aenter__(self) -> AjaxSession:
         await self.login()
         return self
 
@@ -104,7 +104,7 @@ class AjaxSession(AbcSession):
             # Connection Error - maybe three-interface SmartZone
             try:
                 return await self.sz_login()
-            except:
+            except Exception:
                 raise ConnectionError(ERROR_CONNECT_EOF) from cerr
         except asyncio.exceptions.TimeoutError as terr:
             raise ConnectionError(ERROR_CONNECT_TIMEOUT) from terr
@@ -146,7 +146,6 @@ class AjaxSession(AbcSession):
                         # token page is a redirect, maybe temporary Unleashed Rebuilding placeholder
                         # page is showing
                         raise ConnectionRefusedError(ERROR_CONNECT_TEMPORARY)
-            return self
 
     async def r1_login(self) -> None:
         """Create Ruckus One session."""
@@ -174,7 +173,6 @@ class AjaxSession(AbcSession):
             # pylint: disable=import-outside-toplevel
             from .r1ajaxapi import R1AjaxApi
             self._api = R1AjaxApi(self)
-            return self
         except KeyError as kerr:
             raise ConnectionError(ERROR_CONNECT_EOF) from kerr
         except IndexError as ierr:
@@ -185,7 +183,6 @@ class AjaxSession(AbcSession):
             raise ConnectionError(ERROR_CONNECT_EOF) from cerr
         except asyncio.exceptions.TimeoutError as terr:
             raise ConnectionError(ERROR_CONNECT_TIMEOUT) from terr
-
 
     async def sz_login(self) -> None:
         """Create SmartZone session."""
@@ -217,7 +214,6 @@ class AjaxSession(AbcSession):
             # pylint: disable=import-outside-toplevel
             from .smartzoneajaxapi import SmartZoneAjaxApi
             self._api = SmartZoneAjaxApi(self)
-            return self
         except KeyError as kerr:
             raise ConnectionError(ERROR_CONNECT_EOF) from kerr
         except IndexError as ierr:
@@ -275,8 +271,13 @@ class AjaxSession(AbcSession):
             return result_text
 
     @property
-    def api(self) -> "RuckusAjaxApi":
-        """Return a RuckusApi instance."""
+    def api(self) -> RuckusAjaxApi:
+        """Return a RuckusApi instance. Raises RuntimeError if not logged in."""
+        # This check acts as the main gatekeeper. If the session isn't
+        # initialized, you can't get an API object to work with.
+        if self.base_url is None:
+            raise RuntimeError("Session is not logged in. Please call login() or use an async context manager.")
+        
         if not self._api:
             # pylint: disable=import-outside-toplevel
             from .ruckusajaxapi import RuckusAjaxApi
@@ -284,7 +285,7 @@ class AjaxSession(AbcSession):
         return self._api
 
     @classmethod
-    def async_create(cls, host: str, username: str, password: str) -> "AjaxSession":
+    def async_create(cls, host: str, username: str, password: str) -> AjaxSession:
         """Create a default ClientSession & use this to create an AjaxSession instance"""
         # create SSLContext which ignores certificate errors and allows old ciphers
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -301,6 +302,7 @@ class AjaxSession(AbcSession):
         return AjaxSession(websession, host, username, password, auto_cleanup_websession=True)
 
     async def get_conf_str(self, item: ConfigItem, timeout: int | None = None) -> str:
+        assert self.conf_url is not None
         return await self.request(
             self.conf_url,
             f"<ajax-request action='getconf' DECRYPT_X='true' "
@@ -308,7 +310,7 @@ class AjaxSession(AbcSession):
             timeout
         )
 
-    async def request_file(self, file_url: str, timeout: int | None = None, retrying: bool = False) -> str:
+    async def request_file(self, file_url: str, timeout: int | None = None, retrying: bool = False) -> bytes:
         """File Download"""
         async with self.websession.get(
             file_url,
@@ -328,19 +330,19 @@ class AjaxSession(AbcSession):
     async def sz_query(
             self,
             cmd: str,
-            query: dict = None,
+            query: dict | None = None,
             timeout: int | None = None
-    ) -> dict:
+    ) -> list[Any]:
         """Query SZ Data"""
         return (await self.sz_post(f"query/{cmd}", query, timeout))["list"]
 
     async def r1_get(
         self,
         cmd: str,
-        params: dict = None,
+        params: dict | None = None,
         timeout: int | None = None,
         retrying: bool = False
-    ) -> dict:
+    ) -> Any:
         """Get R1 Data"""
         async with self.websession.get(
             f"{self.base_url}/{cmd}",
@@ -363,10 +365,10 @@ class AjaxSession(AbcSession):
     async def sz_get(
         self,
         cmd: str,
-        uri_params: dict = None,
+        uri_params: dict | None = None,
         timeout: int | None = None,
         retrying: bool = False
-    ) -> dict:
+    ) -> Any:
         """Get SZ Data"""
         params = {"serviceTicket": self.__service_ticket}
         if uri_params and isinstance(uri_params, dict):
@@ -393,10 +395,10 @@ class AjaxSession(AbcSession):
     async def sz_post(
         self,
         cmd: str,
-        json: dict = None,
+        json: dict | None = None,
         timeout: int | None = None,
         retrying: bool = False
-    ) -> dict:
+    ) -> Any:
         """Post SZ Data"""
         async with self.websession.post(
             f"{self.base_url}/{cmd}",

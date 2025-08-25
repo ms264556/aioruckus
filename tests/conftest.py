@@ -1,3 +1,4 @@
+from aiohttp.client_reqrep import ConnectionKey
 from aiohttp.client_exceptions import ClientConnectorError
 from aioresponses import aioresponses, CallbackResult
 from asyncio.exceptions import TimeoutError
@@ -5,6 +6,9 @@ import pytest
 import re
 
 from aioruckus.ajaxsession import AjaxSession
+
+def conn_key(host: str):
+    return ConnectionKey(host, 443, True, None, None, None, None)
 
 @pytest.fixture(autouse=True)
 def aiohttp_context():
@@ -23,7 +27,7 @@ def aiohttp_context():
         )
         m.head(
             re.compile(r"^https?://127.0.0.1/?$"),
-            exception=ClientConnectorError(None, OSError()),
+            exception=ClientConnectorError(conn_key("127.0.0.1"), OSError()),
             repeat=True,
         )
         m.head(
@@ -55,7 +59,7 @@ def aiohttp_context():
         )
         m.post(
             re.compile(r"^https://api\.elsewhere\.ruckus\.cloud/oauth2/token/[a-fA-F0-9]{32}$"),
-            exception=ClientConnectorError(None, OSError()),
+            exception=ClientConnectorError(conn_key("api.elsewhere.ruckus.cloud"), OSError()),
             repeat=True,
         )
         m.get(
@@ -99,7 +103,7 @@ def create_ajax_session():
 
 def unleashed_callback_factory(child_count):
     def _callback(url, **kwargs):
-        data = kwargs["data"]
+        data: str = kwargs["data"]
         if data == "<ajax-request action='getconf' DECRYPT_X='true' updater='ap-list.0.5' comp='ap-list'/>":
             _aps = [
                 '<ap mac="8c:7a:15:3e:21:d0" devname="AnR650" model="r650" serial="302139502811" version="200.14.6.1"></ap>',

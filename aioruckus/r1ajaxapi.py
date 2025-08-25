@@ -1,9 +1,9 @@
 """Adds enough AJAX methods to RuckusApi to support Home Assistant"""
-
-from typing import List
+from __future__ import annotations
+from typing import cast
 
 from .ruckusajaxapi import RuckusAjaxApi
-from .typing_policy import *
+from .ruckustyping import *
 
 from .const import (
     SystemStat,
@@ -17,7 +17,7 @@ class R1AjaxApi(RuckusAjaxApi):
     def __init__(self, session: AjaxSession):
         super().__init__(session)
 
-    async def get_aps(self) -> List[dict]:
+    async def get_aps(self) -> list[Ap]:
         """Return a list of APs"""
         aps = await self.session.r1_get("venues/aps")
         compat_aps = [
@@ -25,67 +25,67 @@ class R1AjaxApi(RuckusAjaxApi):
                 **ap,
                 "devname": ap["name"],
                 "version": ap["firmware"],
-                "serial": ap["serialNumber"],
+                "serial": ap["serialNumber"]
             }
             for ap in aps
         ]
-        return compat_aps
+        return cast(list[Ap], compat_aps)
 
-    async def get_ap_groups(self) -> List:
+    async def get_ap_groups(self) -> list[ApGroup]:
         """Return a list of AP groups"""
         raise NotImplementedError
 
-    async def get_wlans(self) -> List[dict]:
+    async def get_wlans(self) -> list[Wlan]:
         """Return a list of WLANs"""
         raise NotImplementedError
 
-    async def get_wlan_groups(self) -> List[dict]:
+    async def get_wlan_groups(self) -> list[WlanGroup]:
         """Return a list of WLAN groups"""
         raise NotImplementedError
 
-    async def get_urlfiltering_policies(self) -> list[UrlFilter | dict]:
+    async def get_urlfiltering_policies(self) -> list[UrlFilter]:
         """Return a list of URL Filtering Policies"""
         raise NotImplementedError
 
     async def get_urlfiltering_blockingcategories(
         self,
-    ) -> list[UrlBlockCategory | dict]:
+    ) -> list[UrlBlockCategory]:
         """Return a list of URL Filtering Blocking Categories"""
         raise NotImplementedError
 
-    async def get_ip4_policies(self) -> list[Ip4Policy | dict]:
+    async def get_ip4_policies(self) -> list[Ip4Policy]:
         """Return a list of IP4 Policies"""
         raise NotImplementedError
 
-    async def get_ip6_policies(self) -> list[Ip6Policy | dict]:
+    async def get_ip6_policies(self) -> list[Ip6Policy]:
         """Return a list of IP6 Policies"""
         raise NotImplementedError
 
-    async def get_device_policies(self) -> list[DevicePolicy | dict]:
+    async def get_device_policies(self) -> list[DevicePolicy]:
         """Return a list of Device Policies"""
         raise NotImplementedError
 
-    async def get_precedence_policies(self) -> list[PrecedencePolicy | dict]:
+    async def get_precedence_policies(self) -> list[PrecedencePolicy]:
         """Return a list of Precedence Policies"""
         raise NotImplementedError
 
-    async def get_arc_policies(self) -> list[ArcPolicy | dict]:
+    async def get_arc_policies(self) -> list[ArcPolicy]:
         """Return a list of Application Recognition & Control Policies"""
         raise NotImplementedError
 
-    async def get_arc_applications(self) -> list[ArcApplication | dict]:
+    async def get_arc_applications(self) -> list[ArcApplication]:
         """Return a list of Application Recognition & Control User Defined Applications"""
         raise NotImplementedError
 
-    async def get_arc_ports(self) -> list[ArcPort | dict]:
+    async def get_arc_ports(self) -> list[ArcPort]:
         """Return a list of Application Recognition & Control User Defined Ports"""
         raise NotImplementedError
 
-    async def get_roles(self) -> list[Role | dict]:
+    async def get_roles(self) -> list[Role]:
         """Return a list of Roles"""
         raise NotImplementedError
 
-    async def get_dpsks(self) -> list[Dpsk | dict]:
+    async def get_dpsks(self) -> list[Dpsk]:
         """Return a list of DPSKs"""
         raise NotImplementedError
 
@@ -98,44 +98,43 @@ class R1AjaxApi(RuckusAjaxApi):
             "identity": {"name": tenant["name"]}
         }
 
-    async def get_mesh_info(self) -> dict:
+    async def get_mesh_info(self) -> Mesh:
         """Return dummy mesh information"""
         # We need to implement this because Home Assistant uses the mesh
         # name as the display name for any Ruskus network.
         # We will use the Tenant Name instead.
-        tenant = await self.session.r1_get("tenants/self")
-        return tenant
+        return await self.session.r1_get("tenants/self")
 
-    async def get_zerotouch_mesh_ap_serials(self) -> dict:
+    async def get_zerotouch_mesh_ap_serials(self) -> list[dict]:
         """Return a list of Pre-approved AP serial numbers"""
         raise NotImplementedError
 
-    async def get_acls(self) -> list[L2Policy | dict]:
+    async def get_acls(self) -> list[L2Policy]:
         """Return a list of ACLs"""
         raise NotImplementedError
 
-    async def get_blocked_client_macs(self) -> list[L2Rule | dict]:
+    async def get_blocked_client_macs(self) -> list[L2Rule]:
         """Return a list of blocked client MACs"""
         raise NotImplementedError
 
-    async def get_active_clients(self, interval_stats: bool = False) -> List:
+    async def get_active_clients(self, interval_stats: bool = False) -> list[Client]:
         """Return a list of active clients"""
         clients = await self.session.r1_get("clients")
         compat_clients = [
             {
                 **client,
-                "ap": client["apMac"],
-                "hostname": client["hostname"] or client["mac"]
+                "ap": client.get("apMac"),
+                "hostname": client.get("hostname") or client.get("mac"),
             }
             for client in clients
         ]
-        return compat_clients
+        return cast(list[Client], compat_clients)
 
-    async def get_inactive_clients(self) -> List:
+    async def get_inactive_clients(self) -> list[Client]:
         """Return a list of inactive clients"""
         raise NotImplementedError
 
-    async def get_ap_stats(self) -> List:
+    async def get_ap_stats(self) -> list[ApStats]:
         """Return a list of AP statistics"""
         aps = await self.session.r1_get("venues/aps")
         compat_aps = [
@@ -147,57 +146,57 @@ class R1AjaxApi(RuckusAjaxApi):
             }
             for ap in aps
         ]
-        return compat_aps
+        return cast(list[ApStats], compat_aps)
 
-    async def get_ap_group_stats(self) -> List:
+    async def get_ap_group_stats(self) -> list[ApGroup]:
         """Return a list of AP group statistics"""
         raise NotImplementedError
 
-    async def get_vap_stats(self) -> List:
+    async def get_vap_stats(self) -> list[Vap]:
         """Return a list of Virtual AP (per-radio WLAN) statistics"""
         raise NotImplementedError
 
-    async def get_wlan_group_stats(self) -> List:
+    async def get_wlan_group_stats(self) -> list[WlanGroup]:
         """Return a list of WLAN group statistics"""
         raise NotImplementedError
 
-    async def get_dpsk_stats(self) -> List:
+    async def get_dpsk_stats(self) -> list[Dpsk]:
         """Return a list of AP group statistics"""
         raise NotImplementedError
 
-    async def get_active_rogues(self) -> list[dict]:
+    async def get_active_rogues(self) -> list[Rogue]:
         """Return a list of currently active rogue devices"""
         raise NotImplementedError
 
-    async def get_known_rogues(self, limit: int = 300) -> list[dict]:
+    async def get_known_rogues(self, limit: int = 300) -> list[Rogue]:
         """Return a list of known/recognized rogues devices"""
         raise NotImplementedError
 
-    async def get_blocked_rogues(self, limit: int = 300) -> list[dict]:
+    async def get_blocked_rogues(self, limit: int = 300) -> list[Rogue]:
         """Return a list of user blocked rogues devices"""
         raise NotImplementedError
 
-    async def get_all_alarms(self, limit: int = 300) -> list[dict]:
+    async def get_all_alarms(self, limit: int = 300) -> list[Alarm]:
         """Return a list of all alerts"""
         raise NotImplementedError
 
-    async def get_all_events(self, limit: int = 300) -> list[dict]:
+    async def get_all_events(self, limit: int = 300) -> list[Event]:
         """Return a list of all events"""
         raise NotImplementedError
 
-    async def get_wlan_events(self, *wlan_ids, limit: int = 300) -> list[dict]:
+    async def get_wlan_events(self, *wlan_ids, limit: int = 300) -> list[Event]:
         """Return a list of WLAN events"""
         raise NotImplementedError
 
-    async def get_ap_events(self, *ap_macs, limit: int = 300) -> list[dict]:
+    async def get_ap_events(self, *ap_macs, limit: int = 300) -> list[Event]:
         """Return a list of AP events"""
         raise NotImplementedError
 
-    async def get_client_events(self, limit: int = 300) -> list[dict]:
+    async def get_client_events(self, limit: int = 300) -> list[Event]:
         """Return a list of client events"""
         raise NotImplementedError
 
-    async def get_wired_client_events(self, limit: int = 300) -> list[dict]:
+    async def get_wired_client_events(self, limit: int = 300) -> list[Event]:
         """Return a list of wired client events"""
         raise NotImplementedError
 
@@ -230,7 +229,7 @@ class R1AjaxApi(RuckusAjaxApi):
         raise NotImplementedError
 
     async def do_set_wlan_password(
-        self, name: str, passphrase: str, sae_passphrase: str = None
+        self, name: str, passphrase: str, sae_passphrase: str | None = None
     ) -> None:
         raise NotImplementedError
 
