@@ -1,7 +1,7 @@
 """Ruckus AbcSession which connects to Ruckus Unleashed or ZoneDirector via HTTPS AJAX"""
 from __future__ import annotations
 from typing import Any, TYPE_CHECKING
-from urllib.parse import urlparse
+from yarl import URL
 import asyncio
 import ssl
 import aiohttp
@@ -13,6 +13,7 @@ from .const import (
     ERROR_POST_NORESULT,
     ERROR_POST_REDIRECTED,
     ERROR_CONNECT_EOF,
+    ERROR_CONNECT_NOPARSE,
     ERROR_CONNECT_TEMPORARY,
     ERROR_CONNECT_TIMEOUT,
     ERROR_LOGIN_INCORRECT
@@ -41,13 +42,11 @@ class AjaxSession(AbcSession):
         self.__auto_cleanup_websession = auto_cleanup_websession
 
         # Common Session State
-        self.base_url: str | None = None
+        self.base_url: URL | None = None
         self._api: RuckusAjaxApi | None = None
 
         # ZoneDirector / Unleashed Session State
-        self.__login_url: str | None = None
-        self.cmdstat_url: str | None = None
-        self.conf_url: str | None = None
+        self.__login_url: URL | None = None
 
         # SmartZone State
         self.__service_ticket: str | None = None
@@ -55,8 +54,6 @@ class AjaxSession(AbcSession):
         # Ruckus One State
         self.__tenant_id: str | None = None
         self.__bearer_token: str | None = None
-
-        # API Implementation
 
     async def __aenter__(self) -> AjaxSession:
         await self.login()
@@ -67,37 +64,44 @@ class AjaxSession(AbcSession):
 
     async def login(self) -> None:
         """Create HTTPS AJAX session."""
+        target_url = self._get_host_url()
+        assert target_url.host is not None
+
+        # Short-circuit Ruckus One identification
+        if target_url.host == "ruckus.cloud" or target_url.host.endswith(".ruckus.cloud"):
+            return await self.r1_login()
+        # Short-circuit SmartZone identification
+        if target_url.port == 8443:
+            return await self.sz_login()
+
         # locate the admin pages: /admin/* for Unleashed and ZD 9.x, /admin10/* for ZD 10.x
         try:
-            if self.host.lower().startswith("https://"):
-                parsed_url = urlparse(self.host)
-                if (parsed_url.netloc == "ruckus.cloud" or parsed_url.netloc.endswith(".ruckus.cloud")):
-                    return await self.r1_login()
-            if self.host.endswith(":8443"):
-                # Allow short-circuit SmartZone identification, in case
-                # it's sharing a public IP address with other web services
-                return await self.sz_login()
             async with self.websession.head(
-                f"https://{self.host}", timeout=3, allow_redirects=False
+                target_url, timeout=aiohttp.ClientTimeout(total=3), allow_redirects=False
             ) as head:
                 if (head.status >= 400 and head.status < 500):
                     # Request Refused - maybe one-interface SmartZone
                     return await self.sz_login()
-                redirect_to = head.headers["Location"]
-            if urlparse(redirect_to).path:
-                self.__login_url = redirect_to
-            else:
-                # Unleashed Member has redirected to Unleashed Master
+                # Resolve the redirect URL against the request URL to handle relative paths
+                login_candidate_url = head.url.join(URL(head.headers["Location"]))
+
+            # Handle Unleashed Member -> Master redirect, which might be a two-step redirect
+            if login_candidate_url.path == '/':
                 async with self.websession.head(
-                    redirect_to, timeout=3, allow_redirects=False
+                    login_candidate_url, timeout=aiohttp.ClientTimeout(total=3), allow_redirects=False
                 ) as head:
-                    self.__login_url = head.headers["Location"]
-            self.base_url, login_page = self.__login_url.rsplit("/", 1)
+                    self.__login_url = head.url.join(URL(head.headers["Location"]))
+            else:
+                self.__login_url = login_candidate_url
+
+            if not self.__login_url:
+                raise ConnectionError(ERROR_CONNECT_EOF)
+
+            self.base_url = self.__login_url.parent
+            login_page = self.__login_url.name
             if login_page in ("index.html", "wizard.jsp"):
                 # Unleashed Rebuilding or Setup Wizard
                 raise ConnectionRefusedError(ERROR_CONNECT_TEMPORARY)
-            self.cmdstat_url = self.base_url + "/_cmdstat.jsp"
-            self.conf_url = self.base_url + "/_conf.jsp"
         except KeyError as kerr:
             raise ConnectionError(ERROR_CONNECT_EOF) from kerr
         except aiohttp.ClientConnectorError as cerr:
@@ -117,7 +121,7 @@ class AjaxSession(AbcSession):
                 "password": self.password,
                 "ok": "Log In",
             },
-            timeout=3,
+            timeout=aiohttp.ClientTimeout(total=3),
             allow_redirects=False,
         ) as head:
             if head.status == 200:
@@ -129,9 +133,11 @@ class AjaxSession(AbcSession):
             else:
                 # older ZD and Unleashed require you to scrape the CSRF token from a page's
                 # javascript
+                if not self.base_url:
+                    raise ConnectionError("Login failed: could not determine base URL for CSRF token.")
                 async with self.websession.get(
-                    self.base_url + "/_csrfTokenVar.jsp",
-                    timeout=3,
+                    self.base_url / "_csrfTokenVar.jsp",
+                    timeout=aiohttp.ClientTimeout(total=3),
                     allow_redirects=False,
                 ) as response:
                     if response.status == 200:
@@ -150,20 +156,22 @@ class AjaxSession(AbcSession):
     async def r1_login(self) -> None:
         """Create Ruckus One session."""
         try:
-            parsed_url = urlparse(self.host)
+            parsed_url = self._get_host_url()
+            assert parsed_url.host is not None
+
             api_netloc = "api.ruckus.cloud"
-            if parsed_url.netloc.endswith("eu.ruckus.cloud"):
+            if parsed_url.host.endswith("eu.ruckus.cloud"):
                 api_netloc = "api.eu.ruckus.cloud"
-            elif parsed_url.netloc.endswith("asia.ruckus.cloud"):
+            elif parsed_url.host.endswith("asia.ruckus.cloud"):
                 api_netloc = "api.asia.ruckus.cloud"
-            self.base_url = f"{parsed_url.scheme}://{api_netloc}"
-            self.__tenant_id = parsed_url.path[1:33]
+            self.base_url = URL.build(scheme=parsed_url.scheme or "https", host=api_netloc)
+            self.__tenant_id = parsed_url.path.strip('/')[0:32]
 
             async with self.websession.post(
-                f"{self.base_url}/oauth2/token/{self.__tenant_id}",
+                self.base_url / "oauth2/token" / self.__tenant_id,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
                 data={"grant_type": "client_credentials", "client_id": self.username, "client_secret": self.password},
-                timeout=20,
+                timeout=aiohttp.ClientTimeout(total=20),
                 allow_redirects=False
             ) as oauth2:
                 if oauth2.status != 200:
@@ -187,21 +195,32 @@ class AjaxSession(AbcSession):
     async def sz_login(self) -> None:
         """Create SmartZone session."""
         try:
-            api_host = self.host.split(":")[0]
-            base_url = f"https://{api_host}:8443/wsg/api/public"
+            target_url = self._get_host_url()
+            assert target_url.host is not None
+
+            base_url = URL.build(scheme="https", host=target_url.host, port=8443, path="/wsg/api/public")
             async with self.websession.get(
-                f"{base_url}/apiInfo", timeout=3, allow_redirects=False
+                base_url / "apiInfo", timeout=aiohttp.ClientTimeout(total=3), allow_redirects=False
             ) as api_info:
+                if api_info.status != 200:
+                    raise ConnectionError(ERROR_CONNECT_EOF)
                 api_versions = await api_info.json()
-                self.base_url = f"{base_url}/{api_versions['apiSupportVersions'][-1]}"
+                supported_versions = api_versions.get('apiSupportVersions')
+                if not isinstance(supported_versions, list) or not supported_versions:
+                    raise ConnectionError("SmartZone controller did not return a list of supported API versions.")
+                latest_version = supported_versions[-1]
+                if not isinstance(latest_version, str):
+                    raise ConnectionError(f"SmartZone controller returned an invalid API version format: {latest_version!r}.")
+
+                self.base_url = base_url / latest_version
                 self.websession.headers["Content-Type"] = "application/json;charset=UTF-8"
                 async with self.websession.post(
-                    f"{self.base_url}/serviceTicket",
+                    self.base_url / "serviceTicket",
                     json={
                         "username": self.username,
                         "password": self.password
                     },
-                    timeout=3,
+                    timeout=aiohttp.ClientTimeout(total=3),
                     allow_redirects=False
                 ) as service_ticket:
                     ticket_info = await service_ticket.json()
@@ -225,6 +244,16 @@ class AjaxSession(AbcSession):
         except asyncio.exceptions.TimeoutError as terr:
             raise ConnectionError(ERROR_CONNECT_TIMEOUT) from terr
 
+    def _get_host_url(self) -> URL:
+        """Normalize the host input to a URL."""
+        host_str = self.host
+        if '://' not in host_str:
+            host_str = f"https://{host_str}"
+        parsed_url = URL(host_str)
+        if not parsed_url.host:
+            raise ConnectionError(ERROR_CONNECT_NOPARSE)
+        return parsed_url
+
     async def close(self) -> None:
         """Logout of ZoneDirector/Unleashed and close websessiom"""
         if self.websession:
@@ -233,7 +262,7 @@ class AjaxSession(AbcSession):
                     async with self.websession.head(
                         self.__login_url,
                         params={"logout": "1"},
-                        timeout=3,
+                        timeout=aiohttp.ClientTimeout(total=3),
                         allow_redirects=False,
                     ):
                         pass
@@ -243,17 +272,22 @@ class AjaxSession(AbcSession):
 
     async def request(
         self,
-        cmd: str,
+        cmd: URL,
         data: str,
-        timeout: int | None = None,
+        timeout: aiohttp.ClientTimeout | int | None = None,
         retrying: bool = False
     ) -> str:
         """Request data"""
+        if isinstance(timeout, int):
+            timeout_obj = aiohttp.ClientTimeout(total=timeout)
+        else:
+            timeout_obj = timeout
+
         async with self.websession.post(
             cmd,
             data=data,
             headers={"Content-Type": "text/xml"},
-            timeout=timeout,
+            timeout=timeout_obj,
             allow_redirects=False
         ) as response:
             if response.status == 302:
@@ -301,20 +335,28 @@ class AjaxSession(AbcSession):
         )
         return AjaxSession(websession, host, username, password, auto_cleanup_websession=True)
 
-    async def get_conf_str(self, item: ConfigItem, timeout: int | None = None) -> str:
-        assert self.conf_url is not None
+    async def get_conf_str(self, item: ConfigItem, timeout: aiohttp.ClientTimeout | int | None = None) -> str:
+        if not self.base_url:
+            raise RuntimeError("Session is not logged into a ZoneDirector or Unleashed device.")
+        
+        conf_url = self.base_url / "_conf.jsp"
         return await self.request(
-            self.conf_url,
+            conf_url,
             f"<ajax-request action='getconf' DECRYPT_X='true' "
             f"updater='{item.value}.0.5' comp='{item.value}'/>",
             timeout
         )
 
-    async def request_file(self, file_url: str, timeout: int | None = None, retrying: bool = False) -> bytes:
+    async def request_file(self, file_url: str | URL, timeout: aiohttp.ClientTimeout | int | None = None, retrying: bool = False) -> bytes:
         """File Download"""
+        if isinstance(timeout, int):
+            timeout_obj = aiohttp.ClientTimeout(total=timeout)
+        else:
+            timeout_obj = timeout
+
         async with self.websession.get(
             file_url,
-            timeout=timeout,
+            timeout=timeout_obj,
             allow_redirects=False
         ) as response:
             if response.status == 302:
@@ -331,7 +373,7 @@ class AjaxSession(AbcSession):
             self,
             cmd: str,
             query: dict | None = None,
-            timeout: int | None = None
+            timeout: aiohttp.ClientTimeout | int | None = None
     ) -> list[Any]:
         """Query SZ Data"""
         return (await self.sz_post(f"query/{cmd}", query, timeout))["list"]
@@ -340,15 +382,23 @@ class AjaxSession(AbcSession):
         self,
         cmd: str,
         params: dict | None = None,
-        timeout: int | None = None,
+        timeout: aiohttp.ClientTimeout | int | None = None,
         retrying: bool = False
     ) -> Any:
         """Get R1 Data"""
+        if not self.base_url or not self.__bearer_token:
+            raise RuntimeError("Session is not logged into Ruckus One.")
+        
+        if isinstance(timeout, int):
+            timeout_obj = aiohttp.ClientTimeout(total=timeout)
+        else:
+            timeout_obj = timeout
+            
         async with self.websession.get(
-            f"{self.base_url}/{cmd}",
+            self.base_url / cmd,
             headers={"Authorization": self.__bearer_token},
             params=params,
-            timeout=timeout,
+            timeout=timeout_obj,
             allow_redirects=False
         ) as response:
             if response.status != 200:
@@ -366,17 +416,26 @@ class AjaxSession(AbcSession):
         self,
         cmd: str,
         uri_params: dict | None = None,
-        timeout: int | None = None,
+        timeout: aiohttp.ClientTimeout | int | None = None,
         retrying: bool = False
     ) -> Any:
         """Get SZ Data"""
+        if not self.base_url or not self.__service_ticket:
+            raise RuntimeError("Session is not logged into a SmartZone controller.")
+        
         params = {"serviceTicket": self.__service_ticket}
         if uri_params and isinstance(uri_params, dict):
             params.update(uri_params)
+
+        if isinstance(timeout, int):
+            timeout_obj = aiohttp.ClientTimeout(total=timeout)
+        else:
+            timeout_obj = timeout
+            
         async with self.websession.get(
-            f"{self.base_url}/{cmd}",
+            self.base_url / cmd,
             params=params,
-            timeout=timeout,
+            timeout=timeout_obj,
             allow_redirects=False
         ) as response:
             if response.status == 403:
@@ -396,15 +455,23 @@ class AjaxSession(AbcSession):
         self,
         cmd: str,
         json: dict | None = None,
-        timeout: int | None = None,
+        timeout: aiohttp.ClientTimeout | int | None = None,
         retrying: bool = False
     ) -> Any:
         """Post SZ Data"""
+        if not self.base_url or not self.__service_ticket:
+            raise RuntimeError("Session is not logged into a SmartZone controller.")
+        
+        if isinstance(timeout, int):
+            timeout_obj = aiohttp.ClientTimeout(total=timeout)
+        else:
+            timeout_obj = timeout
+            
         async with self.websession.post(
-            f"{self.base_url}/{cmd}",
+            self.base_url / cmd,
             params={"serviceTicket": self.__service_ticket},
             json=json or {},
-            timeout=timeout,
+            timeout=timeout_obj,
             allow_redirects=False
         ) as response:
             if response.status == 403:

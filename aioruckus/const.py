@@ -2,6 +2,7 @@
 from enum import Enum
 
 # Error strings
+ERROR_CONNECT_NOPARSE = "Could not parse the hostname"
 ERROR_CONNECT_EOF = "Could not establish connection to host"
 ERROR_CONNECT_TIMEOUT = "Timed out while waiting for client"
 ERROR_CONNECT_TEMPORARY = "Temporarily unable to handle the request"

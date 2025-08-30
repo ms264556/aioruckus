@@ -150,7 +150,7 @@ class RuckusAjaxApi(RuckusApi):
     async def get_backup(self) -> bytes:
         """Return a backup"""
         assert self.session.base_url is not None
-        request = self.session.base_url + "/_savebackup.jsp?time=" + self._ruckus_backup_timestamp()
+        request = self.session.base_url / f"_savebackup.jsp?time={self._ruckus_backup_timestamp()}"
         return await self.session.request_file(request, 60)
 
     async def do_block_client(self, mac: str) -> None:
@@ -540,8 +540,8 @@ class RuckusAjaxApi(RuckusApi):
 
     async def _cmdstat_noparse(self, data: str, timeout: int | None = None) -> str:
         """Call cmdstat without parsing response"""
-        assert self.session.cmdstat_url is not None
-        return await self.session.request(self.session.cmdstat_url, data, timeout)
+        assert self.session.base_url is not None
+        return await self.session.request(self.session.base_url / "_cmdstat.jsp", data, timeout)
 
     async def cmdstat(
         self, data: str, collection_elements: list[str] | None = None, aggressive_unwrap: bool = True,
@@ -622,8 +622,8 @@ class RuckusAjaxApi(RuckusApi):
 
     async def _conf_noparse(self, data: str, timeout: int | None = None) -> str:
         """Call conf without parsing response"""
-        assert self.session.conf_url is not None
-        return await self.session.request(self.session.conf_url, data, timeout)
+        assert self.session.base_url is not None
+        return await self.session.request(self.session.base_url / "_conf.jsp", data, timeout)
 
     async def conf(
         self, data: str, collection_elements: list[str] | None = None, timeout: int | None = None
