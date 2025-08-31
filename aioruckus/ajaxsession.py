@@ -1,12 +1,13 @@
 """Ruckus AbcSession which connects to Ruckus Unleashed or ZoneDirector via HTTPS AJAX"""
 from __future__ import annotations
-from typing import Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING, cast
 from yarl import URL
 import asyncio
 import ssl
 import aiohttp
 import xmltodict
 
+from .ruckustyping import SzPermissionCategories, SzSession
 from .abcsession import AbcSession, ConfigItem
 from .exceptions import AuthenticationError
 from .const import (
@@ -50,6 +51,7 @@ class AjaxSession(AbcSession):
 
         # SmartZone State
         self.__service_ticket: str | None = None
+        self.smartzone_session: SzSession | None = None
 
         # Ruckus One State
         self.__tenant_id: str | None = None
@@ -214,6 +216,7 @@ class AjaxSession(AbcSession):
 
                 self.base_url = base_url / latest_version
                 self.websession.headers["Content-Type"] = "application/json;charset=UTF-8"
+
                 async with self.websession.post(
                     self.base_url / "serviceTicket",
                     json={
@@ -230,6 +233,40 @@ class AjaxSession(AbcSession):
                             raise AuthenticationError(ticket_info["errorType"])
                         raise ConnectionError(ticket_info["errorType"])
                     self.__service_ticket = ticket_info["serviceTicket"]
+                    controller_version = ticket_info["controllerVersion"]
+
+                async with self.websession.get(
+                    self.base_url / "userGroups/currentUser/permissionCategories",
+                    params={"serviceTicket": self.__service_ticket},
+                    allow_redirects=False
+                ) as user_permissions:
+                    permission_categories = cast(SzPermissionCategories, await user_permissions.json())
+
+                async with self.websession.get(
+                    self.base_url / "session",
+                    params={"serviceTicket": self.__service_ticket},
+                    allow_redirects=False
+                ) as logon_session:
+                    session_info = await logon_session.json()
+                    session_info["controllerVersion"] = controller_version
+                    session_info["permissionCategories"] = permission_categories
+                    if session_info['domainId'] != "8b2081d5-9662-40d9-a3db-2a3cf4dde3f7" and "@" in self.username:
+                        session_info["partnerDomain"] = self.username.rsplit("@", 1)[1]
+
+                if any(d.get("resource") == "CLUSTER_CATEGORY" for d in permission_categories["list"]):
+                    cpId = session_info["cpId"]
+                    async with self.websession.get(
+                        self.base_url / "controlPlanes",
+                        params={"serviceTicket": self.__service_ticket},
+                        allow_redirects=False
+                    ) as control_planes:
+                        planes = await control_planes.json()
+                        plane = next((p for p in planes["list"] if p["id"] == cpId), None)
+                        if plane:
+                            session_info["cpName"] = plane["name"]
+                            session_info["cpSerialNumber"] = plane["serialNumber"]
+
+                self.smartzone_session = cast(SzSession, session_info)
             # pylint: disable=import-outside-toplevel
             from .smartzoneajaxapi import SmartZoneAjaxApi
             self._api = SmartZoneAjaxApi(self)

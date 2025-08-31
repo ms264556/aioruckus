@@ -83,26 +83,22 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
 
     async def get_system_info(self, *sections: SystemStat) -> dict:
         """Return system information"""
-        cluster_info = await self.__get_cluster_state()
-        cluster_info["name"] = cluster_info["clusterName"]
-        current_controller_id = cluster_info["currentNodeId"]
-        controllers = (await self.session.sz_get("controller"))["list"]
-        sysinfo = next((controller for controller in controllers if controller["id"] == current_controller_id), controllers[0])
-        sysinfo["serial"] = sysinfo["serialNumber"]
-        return { "sysinfo": sysinfo, "identity": cluster_info }            
+        sz = self.session.smartzone_session
+        assert sz
+        mesh_info = await self.get_mesh_info()
+        return{
+            "sysinfo": { "version": sz["controllerVersion"] ,"serial": sz["domainId"] if "partnerDomain" in sz else sz.get("cpSerialNumber", sz["cpId"]) },
+            "identity": mesh_info
+        }
 
     async def get_mesh_info(self) -> Mesh:
         """Return dummy mesh information"""
         # Mesh is per-zone in SmartZone. But we need to implement this because
-        # Home Assistant uses the mesh name as the display name for any Ruskus
-        # network. We will use the Cluster Name instead.
-        cluster_state = await self.session.sz_get("cluster/state")
-        cluster_state["name"] = cluster_state["clusterName"]
-        return cluster_state
-
-    async def __get_cluster_state(self) -> dict:
-        """Return Cluster State"""
-        return await self.session.sz_get("cluster/state")
+        # Home Assistant uses the mesh name as the display name for any Ruckus
+        # network. We will use the Partner Domain or Cluster Name if available.
+        sz = self.session.smartzone_session
+        assert sz
+        return { "name": sz.get("partnerDomain") or sz.get("cpName", "SmartZone") }
 
     async def get_zerotouch_mesh_ap_serials(self) -> list[dict]:
         """Return a list of Pre-approved AP serial numbers"""
