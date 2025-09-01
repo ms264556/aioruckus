@@ -1,4 +1,3 @@
-from aiohttp.client_reqrep import ConnectionKey
 from aiohttp.client_exceptions import ClientConnectorError
 from aioresponses import aioresponses, CallbackResult
 from asyncio.exceptions import TimeoutError
@@ -6,9 +5,6 @@ import pytest
 import re
 
 from aioruckus.ajaxsession import AjaxSession
-
-def conn_key(host: str):
-    return ConnectionKey(host, 443, True, None, None, None, None)
 
 @pytest.fixture(autouse=True)
 def aiohttp_context():
@@ -27,7 +23,7 @@ def aiohttp_context():
         )
         m.head(
             re.compile(r"^https?://127.0.0.1/?$"),
-            exception=ClientConnectorError(conn_key("127.0.0.1"), OSError()),
+            exception=ClientConnectorError(None, OSError()),
             repeat=True,
         )
         m.head(
@@ -59,7 +55,7 @@ def aiohttp_context():
         )
         m.post(
             re.compile(r"^https://api\.elsewhere\.ruckus\.cloud/oauth2/token/[a-fA-F0-9]{32}$"),
-            exception=ClientConnectorError(conn_key("api.elsewhere.ruckus.cloud"), OSError()),
+            exception=ClientConnectorError(None, OSError()),
             repeat=True,
         )
         m.get(

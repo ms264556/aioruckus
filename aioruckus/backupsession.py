@@ -46,12 +46,13 @@ class BackupSession(AbcSession):
                 backup_file.seek(0)
                 return self.__open_tac_backup(backup_file)
 
-    @classmethod
-    def __decrypt_key(cls, cipher_bytes: bytes) -> bytes:
+    @staticmethod
+    def __decrypt_key(cipher_bytes: bytes) -> bytes:
         padded_key = pow(int.from_bytes(cipher_bytes, 'big'), 65537, 23559046888044776627569879690471525499427612616504460325607886880157810091042540109382540840072568820382270758180649018860535002041926018790203547085546162549326945200443019963900872654422143820799219291504478283808912964667353808795633808052022964371726410677357834881346022671448243831605466569511830964339444687659616502868745663064525218488470606514409811838671765944249166136071060850237167429125523755638111097424494275181385870987411479009552515816450089719197508371290305110717762578033949377936003949760003095430389967102852124783026450284389704957901428442687247403657819155956894836033683283023293306459081).to_bytes(256, 'big')
         return padded_key[padded_key.index(b'\x00', 2) + 1:]
 
-    def __open_tac_backup(self, backup_file: io.BufferedReader) -> io.BytesIO:
+    @staticmethod
+    def __open_tac_backup(backup_file: io.BufferedReader) -> io.BytesIO:
         """Return the decrypted TAC backup file"""
         (xor_int, xor_flip) = struct.unpack('QQ', b')\x1aB\x05\xbd,\xd6\xf25\xad\xb8\xe0?T\xc58')
         struct_int8 = struct.Struct('Q')
@@ -66,14 +67,14 @@ class BackupSession(AbcSession):
         output_file.seek(0)
         return output_file
 
-    @classmethod
-    def __skip_block(cls, backup_file: io.BufferedReader) -> None:
+    @staticmethod
+    def __skip_block(backup_file: io.BufferedReader) -> None:
         backup_file.seek(1, SEEK_CUR)
         block_length = int.from_bytes(backup_file.read(4), byteorder='big', signed=False)
         backup_file.seek(block_length, SEEK_CUR)
 
-    @classmethod
-    def __get_block_length(cls, backup_file: io.BufferedReader) -> int:
+    @staticmethod
+    def __get_block_length(backup_file: io.BufferedReader) -> int:
         backup_file.seek(1, SEEK_CUR)
         return int.from_bytes(backup_file.read(4), byteorder='big', signed=False)
 
@@ -97,8 +98,8 @@ class BackupSession(AbcSession):
         output_file.seek(0)
         return output_file
 
-    @classmethod
-    def create(cls, backup_path: str) -> BackupSession:
+    @staticmethod
+    def create(backup_path: str) -> BackupSession:
         """Create a default ClientSession & use this to create a BackupSession instance"""
         return BackupSession(backup_path)
 

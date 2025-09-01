@@ -12,7 +12,7 @@ import binascii
 import xmltodict
 
 from .exceptions import SchemaError
-from .ruckustyping import Ap, ApGroup, ArcApplication, ArcPolicy, ArcPort, DevicePolicy, Dpsk, Ip4Policy, Ip6Policy, L2Policy, L2Rule, Mesh, PrecedencePolicy, Role, UrlBlockCategory, UrlFilter, Wlan, WlanGroup
+from .ajaxtyping import Ap, ApGroup, ArcApplication, ArcPolicy, ArcPort, DevicePolicy, Dpsk, Ip4Policy, Ip6Policy, L2Policy, L2Rule, Mesh, PrecedencePolicy, Role, UrlBlockCategory, UrlFilter, Wlan, WlanGroup
 
 from .abcsession import AbcSession, ConfigItem
 from .const import ERROR_POST_BADRESULT, URL_FILTERING_CATEGORIES, SystemStat

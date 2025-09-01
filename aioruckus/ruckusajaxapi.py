@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from xml.sax import saxutils
 import xmltodict
 
-from .ruckustyping import Alarm, Ap, ApGroup, ApStats, Client, Dpsk, Event, L2Policy, Rogue, Wlan, WlanGroup, Vap
+from .ajaxtyping import Alarm, Ap, ApGroup, ApStats, Client, Dpsk, Event, L2Policy, Rogue, Wlan, WlanGroup, Vap
 
 from .const import (
     ERROR_ACL_NOT_FOUND,
@@ -33,9 +33,10 @@ from .ruckusapi import RuckusApi
 
 class RuckusAjaxApi(RuckusApi):
     """Ruckus ZoneDirector or Unleashed Configuration, Statistics and Commands API"""
+    session: AjaxSession
+
     def __init__(self, session: AjaxSession):
         super().__init__(session)
-        self.session: AjaxSession
 
     async def get_system_info(self, *sections: SystemStat) -> dict:
         section_keys: list[str]
@@ -108,11 +109,11 @@ class RuckusAjaxApi(RuckusApi):
 
     async def get_known_rogues(self, limit: int = 300) -> list[Rogue]:
         """Return a list of known/recognized rogues devices"""
-        return [rogue async for rogue in self.cmdstat_piecewise("stamgr", "rogue", "apstamgr-stat", filter={"LEVEL": "1", "recognized": "true"}, updater="krogue", limit=limit)]
+        return [rogue async for rogue in self.cmdstat_piecewise("stamgr", "rogue", "apstamgr-stat", filters={"LEVEL": "1", "recognized": "true"}, updater="krogue", limit=limit)]
 
     async def get_blocked_rogues(self, limit: int = 300) -> list[Rogue]:
         """Return a list of user blocked rogues devices"""
-        return [rogue async for rogue in self.cmdstat_piecewise("stamgr", "rogue", "apstamgr-stat", filter={"LEVEL": "1", "blocked": "true"}, updater="brogue", limit=limit)]
+        return [rogue async for rogue in self.cmdstat_piecewise("stamgr", "rogue", "apstamgr-stat", filters={"LEVEL": "1", "blocked": "true"}, updater="brogue", limit=limit)]
 
     async def get_all_alarms(self, limit: int = 300) -> list[Alarm]:
         """Return a list of all alerts"""
@@ -124,19 +125,19 @@ class RuckusAjaxApi(RuckusApi):
 
     async def get_wlan_events(self, *wlan_ids, limit: int = 300) -> list[Event]:
         """Return a list of WLAN events"""
-        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filter={"wlan": list(wlan_ids) if wlan_ids else "*"}, limit=limit)]
+        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filters={"wlan": list(wlan_ids) if wlan_ids else "*"}, limit=limit)]
 
     async def get_ap_events(self, *ap_macs, limit: int = 300) -> list[Event]:
         """Return a list of AP events"""
-        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filter={"ap": list(self._normalize_mac(mac) for mac in ap_macs) if ap_macs else "*"}, limit=limit)]
+        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filters={"ap": list(self._normalize_mac(mac) for mac in ap_macs) if ap_macs else "*"}, limit=limit)]
 
     async def get_client_events(self, limit: int = 300) -> list[Event]:
         """Return a list of client events"""
-        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filter={"c": "user"}, limit=limit)]
+        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filters={"c": "user"}, limit=limit)]
 
     async def get_wired_client_events(self, limit: int = 300) -> list[Event]:
         """Return a list of wired client events"""
-        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filter={"c": "wire"}, limit=limit)]
+        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filters={"c": "wire"}, limit=limit)]
 
     async def get_syslog(self) -> str:
         """Return a list of syslog entries"""
@@ -552,7 +553,7 @@ class RuckusAjaxApi(RuckusApi):
         return self._ruckus_xml_unwrap(result_text, collection_elements, aggressive_unwrap)
 
     async def cmdstat_piecewise(
-        self, comp: str, element_type: str, element_collection: str | None = None, filter: dict[str, Any] | None = None, limit: int = 300, page_size: int | None = None,  updater: str | None = None, timeout: int | None = None
+        self, comp: str, element_type: str, element_collection: str | None = None, filters: dict[str, Any] | None = None, limit: int = 300, page_size: int | None = None,  updater: str | None = None, timeout: int | None = None
     ) -> AsyncIterator[Any]:
         """Call cmdstat and parse piecewise xml results"""
 
@@ -573,7 +574,7 @@ class RuckusAjaxApi(RuckusApi):
             "@action": "getstat",
             "@comp": comp,
             "@updater": f"{updater}.{ts_time}.{ts_random}",
-            element_type: self._get_event_filter(filter),
+            element_type: self._get_filter_object(filters),
             "pieceStat": piece_stat
         }}
 
@@ -605,14 +606,14 @@ class RuckusAjaxApi(RuckusApi):
                 return
 
     @staticmethod
-    def _get_event_filter(filter: dict[str, Any] | None = None, sort_by: str = "time", sort_descending: bool = True) -> dict:
+    def _get_filter_object(filters: dict[str, Any] | None = None, sort_by: str = "time", sort_descending: bool = True) -> dict:
 
         result = {
             "@sortBy": sort_by,
             "@sortDirection": -1 if sort_descending else 1
         }
-        if filter is not None:
-            for key, values in filter.items():
+        if filters is not None:
+            for key, values in filters.items():
                 if isinstance(values, str):
                     result[f"@{key}"] = values
                 else:

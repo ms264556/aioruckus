@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 from .ruckusajaxapi import RuckusAjaxApi
-from .ruckustyping import *
+from .ajaxtyping import *
 
 from .const import (
     SystemStat
@@ -13,6 +13,8 @@ from .ajaxsession import AjaxSession
 
 class SmartZoneAjaxApi(RuckusAjaxApi):
     """Ruckus SmartZone Configuration, Statistics and Commands API"""
+    session: AjaxSession
+
     def __init__(self, session: AjaxSession):
         super().__init__(session)
 

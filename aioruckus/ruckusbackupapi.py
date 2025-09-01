@@ -5,14 +5,14 @@ from .const import SystemStat
 from .abcsession import ConfigItem
 from .backupsession import BackupSession
 from .ruckusapi import RuckusApi
-from .ruckustyping import Mesh
+from .ajaxtyping import Mesh
 
 class RuckusBackupApi(RuckusApi):
     """Ruckus ZoneDirector or Unleashed Configuration, Statistics and Commands API"""
+    session: BackupSession
 
     def __init__(self, session: BackupSession):
         super().__init__(session)
-        self.session: BackupSession
 
     async def get_system_info(self, *sections: SystemStat) -> dict:
         """Return system information"""

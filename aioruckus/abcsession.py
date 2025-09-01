@@ -1,5 +1,5 @@
 """Ruckus Session"""
-
+from __future__ import annotations
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -39,13 +39,10 @@ class AbcSession(ABC):
         self._api = None
 
     @property
-    def api(self) -> "RuckusApi":
+    @abstractmethod
+    def api(self) -> RuckusApi:
         """Return a RuckusApi instance."""
-        if not self._api:
-            # pylint: disable=import-outside-toplevel
-            from .ruckusapi import RuckusApi
-            self._api = RuckusApi(self)
-        return self._api
+        raise NotImplementedError()
 
     @abstractmethod
     async def get_conf_str(self, item: ConfigItem, timeout: int | None = None) -> str:

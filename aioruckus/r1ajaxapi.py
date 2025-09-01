@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 from .ruckusajaxapi import RuckusAjaxApi
-from .ruckustyping import *
+from .ajaxtyping import *
 
 from .const import (
     SystemStat,
@@ -13,6 +13,7 @@ from .ajaxsession import AjaxSession
 
 class R1AjaxApi(RuckusAjaxApi):
     """Ruckus One Configuration, Statistics and Commands API"""
+    session: AjaxSession
 
     def __init__(self, session: AjaxSession):
         super().__init__(session)
@@ -101,7 +102,7 @@ class R1AjaxApi(RuckusAjaxApi):
     async def get_mesh_info(self) -> Mesh:
         """Return dummy mesh information"""
         # We need to implement this because Home Assistant uses the mesh
-        # name as the display name for any Ruskus network.
+        # name as the display name for any Ruckus network.
         # We will use the Tenant Name instead.
         return await self.session.r1_get("tenants/self")
 

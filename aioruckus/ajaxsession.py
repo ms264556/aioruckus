@@ -7,7 +7,7 @@ import ssl
 import aiohttp
 import xmltodict
 
-from .ruckustyping import SzPermissionCategories, SzSession
+from .smartzonetyping import SzPermissionCategories, SzSession
 from .abcsession import AbcSession, ConfigItem
 from .exceptions import AuthenticationError
 from .const import (
@@ -17,7 +17,8 @@ from .const import (
     ERROR_CONNECT_NOPARSE,
     ERROR_CONNECT_TEMPORARY,
     ERROR_CONNECT_TIMEOUT,
-    ERROR_LOGIN_INCORRECT
+    ERROR_LOGIN_INCORRECT,
+    ERROR_NO_SESSION
 )
 
 if TYPE_CHECKING:
@@ -81,7 +82,7 @@ class AjaxSession(AbcSession):
             async with self.websession.head(
                 target_url, timeout=aiohttp.ClientTimeout(total=3), allow_redirects=False
             ) as head:
-                if (head.status >= 400 and head.status < 500):
+                if 400 <= head.status < 500:
                     # Request Refused - maybe one-interface SmartZone
                     return await self.sz_login()
                 # Resolve the redirect URL against the request URL to handle relative paths
@@ -254,14 +255,14 @@ class AjaxSession(AbcSession):
                         session_info["partnerDomain"] = self.username.rsplit("@", 1)[1]
 
                 if any(d.get("resource") == "CLUSTER_CATEGORY" for d in permission_categories["list"]):
-                    cpId = session_info["cpId"]
+                    cp_id = session_info["cpId"]
                     async with self.websession.get(
                         self.base_url / "controlPlanes",
                         params={"serviceTicket": self.__service_ticket},
                         allow_redirects=False
                     ) as control_planes:
                         planes = await control_planes.json()
-                        plane = next((p for p in planes["list"] if p["id"] == cpId), None)
+                        plane = next((p for p in planes["list"] if p["id"] == cp_id), None)
                         if plane:
                             session_info["cpName"] = plane["name"]
                             session_info["cpSerialNumber"] = plane["serialNumber"]
@@ -347,7 +348,7 @@ class AjaxSession(AbcSession):
         # This check acts as the main gatekeeper. If the session isn't
         # initialized, you can't get an API object to work with.
         if self.base_url is None:
-            raise RuntimeError("Session is not logged in. Please call login() or use an async context manager.")
+            raise RuntimeError(ERROR_NO_SESSION)
         
         if not self._api:
             # pylint: disable=import-outside-toplevel
@@ -355,8 +356,8 @@ class AjaxSession(AbcSession):
             self._api = RuckusAjaxApi(self)
         return self._api
 
-    @classmethod
-    def async_create(cls, host: str, username: str, password: str) -> AjaxSession:
+    @staticmethod
+    def async_create(host: str, username: str, password: str) -> AjaxSession:
         """Create a default ClientSession & use this to create an AjaxSession instance"""
         # create SSLContext which ignores certificate errors and allows old ciphers
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -374,7 +375,7 @@ class AjaxSession(AbcSession):
 
     async def get_conf_str(self, item: ConfigItem, timeout: aiohttp.ClientTimeout | int | None = None) -> str:
         if not self.base_url:
-            raise RuntimeError("Session is not logged into a ZoneDirector or Unleashed device.")
+            raise RuntimeError(ERROR_NO_SESSION)
         
         conf_url = self.base_url / "_conf.jsp"
         return await self.request(
@@ -424,7 +425,7 @@ class AjaxSession(AbcSession):
     ) -> Any:
         """Get R1 Data"""
         if not self.base_url or not self.__bearer_token:
-            raise RuntimeError("Session is not logged into Ruckus One.")
+            raise RuntimeError(ERROR_NO_SESSION)
         
         if isinstance(timeout, int):
             timeout_obj = aiohttp.ClientTimeout(total=timeout)
@@ -458,7 +459,7 @@ class AjaxSession(AbcSession):
     ) -> Any:
         """Get SZ Data"""
         if not self.base_url or not self.__service_ticket:
-            raise RuntimeError("Session is not logged into a SmartZone controller.")
+            raise RuntimeError(ERROR_NO_SESSION)
         
         params = {"serviceTicket": self.__service_ticket}
         if uri_params and isinstance(uri_params, dict):
@@ -497,7 +498,7 @@ class AjaxSession(AbcSession):
     ) -> Any:
         """Post SZ Data"""
         if not self.base_url or not self.__service_ticket:
-            raise RuntimeError("Session is not logged into a SmartZone controller.")
+            raise RuntimeError(ERROR_NO_SESSION)
         
         if isinstance(timeout, int):
             timeout_obj = aiohttp.ClientTimeout(total=timeout)
