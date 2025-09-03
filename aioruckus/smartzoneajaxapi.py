@@ -197,7 +197,7 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
 
     async def get_ap_stats(self) -> list[ApStats]:
         """Return a list of AP statistics"""
-        aps = await self.session.sz_query("ap")
+        aps = await self._get_ap_ops()
         compat_aps = [
             {**ap, "mac": ap["apMac"], "devname": ap["deviceName"], "firmware-version": ap["firmwareVersion"], "serial-number": ap["serial"]} 
             for ap in aps

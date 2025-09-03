@@ -124,6 +124,11 @@ class RuckusApi(ABC):
                     if wlan["policy6-id"] and wlan["policy6-id"] in policy6_map:
                         wlan["policy6"] = deepcopy(policy6_map[wlan["policy6-id"]])
                     del wlan["policy6-id"]
+                avp_policy = wlan.get("avp-policy")
+                if avp_policy and self._parse_conf_bool(avp_policy.get("avp-enabled")) is True:
+                    wlan["avp-policy"] = deepcopy(arcpolicy_map[avp_policy["avpdeny-id"]])
+                else:
+                    wlan.pop("avp-policy", None)
         return wlans
 
     async def get_wlan_groups(self) -> list[WlanGroup]:
