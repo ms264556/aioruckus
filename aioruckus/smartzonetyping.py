@@ -226,3 +226,34 @@ class SzApOperational(TypedDict):
     cumulativeTx5G: int
     cumulativeRx5G: int
     cumulativeTxRx5G: int
+
+class SzWlan(TypedDict, total=False):
+    clients: int
+    applicationVisibility: Literal["Enabled", "Disabled"]
+    zeroITOnboard: Literal["Enabled", "Disabled"]
+    trafficUplink: int
+    description: str
+    zeroITEnabled: Literal["Enabled", "Disabled"]
+    ssid: Required[str]
+    wlanId: Required[str]
+    encryptionMethod: str
+    enability11k: Literal["Enabled", "Disabled"]
+    alerts: int
+    tunneled: Literal["Tunneled", "APBridged"]
+    vlan: int
+    enability11r: Literal["Enabled", "Disabled"]
+    name: Required[str]
+    authMethod: str
+    authType: str
+    domainName: str
+    zoneName: str
+    zoneId: str
+    trafficDownlink: int
+    status: Literal["Online", "Flagged", "Offline"]
+    traffic: int
+    wpaVersion: str
+    wepEncryptionStrength: int
+    tenantId: str
+    tenantDomainName: str
+    utp: str
+    firewallProfileId: str

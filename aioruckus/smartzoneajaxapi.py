@@ -6,7 +6,7 @@ from typing import cast
 from itertools import groupby
 
 from .exceptions import AuthorizationError
-from .smartzonetyping import SzApOperational, SzBlockClient
+from .smartzonetyping import SzApOperational, SzBlockClient, SzWlan
 from .ruckusajaxapi import RuckusAjaxApi
 from .ajaxtyping import *
 
@@ -35,6 +35,10 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
     async def _get_ap_ops(self) -> list[SzApOperational]:
         """Return a list of AP Operational Information"""
         return await self.session.sz_query("ap")
+    
+    async def _get_wlans(self) -> list[SzWlan]:
+        """Return a list of SmartZone WLANs"""
+        return await self.session.sz_query("wlan")
 
     async def get_ap_groups(self) -> list[ApGroup]:
         """Return a list of AP groups"""
@@ -42,7 +46,12 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
 
     async def get_wlans(self) -> list[Wlan]:
         """Return a list of WLANs"""
-        raise NotImplementedError
+        wlans = await self._get_wlans()
+        compat_wlans = [
+            {**wlan, "id": wlan["wlanId"]}
+            for wlan in wlans
+        ]
+        return cast(list[Wlan], compat_wlans)
 
     async def get_wlan_groups(self) -> list[WlanGroup]:
         """Return a list of WLAN groups"""
@@ -261,11 +270,13 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
 
     async def do_disable_wlan(self, name: str, disable_wlan: bool = True) -> None:
         """Disable a WLAN"""
-        raise NotImplementedError
-
-    async def do_enable_wlan(self, name: str) -> None:
-        """Enable a WLAN"""
-        raise NotImplementedError
+        id_list = [wlan["wlanId"] for wlan in await self._get_wlans() if wlan["name"] == name]
+        if id_list:
+            action = "disable" if disable_wlan else "enable"
+            try:
+                await self.session.sz_post(f"rkszones/wlans/{action}", {"idList": id_list})
+            except AuthorizationError:
+                raise AuthorizationError("Enable/disable WLAN requires WLAN [Modify] permissions")
 
     async def do_set_wlan_password(
         self,

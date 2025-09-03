@@ -1,6 +1,7 @@
 """Ruckus ZoneDirector or Unleashed Configuration API"""
 from __future__ import annotations
 from abc import ABC
+import asyncio
 from copy import deepcopy
 from typing import Any
 
@@ -77,13 +78,22 @@ class RuckusApi(ABC):
         """Return a list of WLANs"""
         wlans = await self._get_conf(ConfigItem.WLANSVC_LIST, ["wlansvc"])
         if wlans:
-            acl_map = {policy['id']: policy for policy in await self.get_acls()}
-            urlfilter_map = {policy['id']: policy for policy in await self.get_urlfiltering_policies()}
-            precedence_map = {policy['id']: policy for policy in await self.get_precedence_policies()}
-            devicepolicy_map = {policy['id']: policy for policy in await self.get_device_policies()}
-            arcpolicy_map = {policy['id']: policy for policy in await self.get_arc_policies()}
-            policy_map = {policy['id']: policy for policy in await self.get_ip4_policies()}
-            policy6_map = {policy['id']: policy for policy in await self.get_ip6_policies()}
+            acl_list, urlfilter_list, precedence_list, devicepolicy_list, arcpolicy_list, policy_list, policy6_list = await asyncio.gather(
+                self.get_acls(),
+                self.get_urlfiltering_policies(),
+                self.get_precedence_policies(),
+                self.get_device_policies(),
+                self.get_arc_policies(),
+                self.get_ip4_policies(),
+                self.get_ip6_policies()
+            )
+            acl_map = {policy['id']: policy for policy in acl_list}
+            urlfilter_map = {policy['id']: policy for policy in urlfilter_list}
+            precedence_map = {policy['id']: policy for policy in precedence_list}
+            devicepolicy_map = {policy['id']: policy for policy in devicepolicy_list}
+            arcpolicy_map = {policy['id']: policy for policy in arcpolicy_list}
+            policy_map = {policy['id']: policy for policy in policy_list}
+            policy6_map = {policy['id']: policy for policy in policy6_list}
             for wlan in wlans:
                 urlfiltering_policy = wlan.get("urlfiltering-policy")
                 if urlfiltering_policy and self._parse_conf_bool(urlfiltering_policy.get("urlfiltering-enabled")) is True:
@@ -220,11 +230,18 @@ class RuckusApi(ABC):
             roles = await self._get_conf(ConfigItem.ROLE_LIST, ["role", "allow-wlansvc"])
         except KeyError:
             return []
-        urlfilter_map = {policy['id']: policy for policy in await self.get_urlfiltering_policies()}
-        devicepolicy_map = {policy['id']: policy for policy in await self.get_device_policies()}
-        arcpolicy_map = {policy['id']: policy for policy in await self.get_arc_policies()}
-        policy_map = {policy['id']: policy for policy in await self.get_ip4_policies()}
-        policy6_map = {policy['id']: policy for policy in await self.get_ip6_policies()}
+        urlfilter_list, devicepolicy_list, arcpolicy_list, policy_list, policy6_list = await asyncio.gather(
+            self.get_urlfiltering_policies(),
+            self.get_device_policies(),
+            self.get_arc_policies(),
+            self.get_ip4_policies(),
+            self.get_ip6_policies()
+        )
+        urlfilter_map = {policy['id']: policy for policy in urlfilter_list}
+        devicepolicy_map = {policy['id']: policy for policy in devicepolicy_list}
+        arcpolicy_map = {policy['id']: policy for policy in arcpolicy_list}
+        policy_map = {policy['id']: policy for policy in policy_list}
+        policy6_map = {policy['id']: policy for policy in policy6_list}
         for role in roles:
             if "allow-wlansvc" in role:
                 role["allow-wlansvc"] = [
