@@ -9,7 +9,7 @@ import xmltodict
 
 from .smartzonetyping import SzPermissionCategories, SzSession
 from .abcsession import AbcSession, ConfigItem
-from .exceptions import AuthenticationError
+from .exceptions import AuthenticationError, AuthorizationError, BusinessRuleError
 from .const import (
     ERROR_POST_NORESULT,
     ERROR_POST_REDIRECTED,
@@ -234,6 +234,7 @@ class AjaxSession(AbcSession):
                             raise AuthenticationError(ticket_info["errorType"])
                         raise ConnectionError(ticket_info["errorType"])
                     self.__service_ticket = ticket_info["serviceTicket"]
+                    assert self.__service_ticket
                     controller_version = ticket_info["controllerVersion"]
 
                 async with self.websession.get(
@@ -249,6 +250,7 @@ class AjaxSession(AbcSession):
                     allow_redirects=False
                 ) as logon_session:
                     session_info = await logon_session.json()
+                    session_info["apiVersion"] = latest_version
                     session_info["controllerVersion"] = controller_version
                     session_info["permissionCategories"] = permission_categories
                     if session_info['domainId'] != "8b2081d5-9662-40d9-a3db-2a3cf4dde3f7" and "@" in self.username:
@@ -465,29 +467,19 @@ class AjaxSession(AbcSession):
         if uri_params and isinstance(uri_params, dict):
             params.update(uri_params)
 
-        if isinstance(timeout, int):
-            timeout_obj = aiohttp.ClientTimeout(total=timeout)
-        else:
-            timeout_obj = timeout
-            
         async with self.websession.get(
             self.base_url / cmd,
             params=params,
-            timeout=timeout_obj,
+            timeout=self._cast_timeout(timeout),
             allow_redirects=False
         ) as response:
-            if response.status == 403:
-                raise AuthenticationError(ERROR_POST_REDIRECTED)
-            if response.status != 200:
-                # assume session is dead and re-login
+            if response.status == 401:
                 if retrying:
-                    # we tried logging in again, but the redirect still happens.
-                    # an exception should have been raised from the login!
-                    raise AuthenticationError(ERROR_POST_REDIRECTED)
-                await self.sz_login()  # try logging in again, then retry post
+                    # already tried logging in again - give up
+                    raise AuthorizationError(ERROR_POST_REDIRECTED)
+                await self.sz_login()
                 return await self.sz_get(cmd, uri_params, timeout, retrying=True)
-            result_json = await response.json()
-            return result_json
+            return await self._validate_sz_response(response)    
 
     async def sz_post(
         self,
@@ -500,27 +492,115 @@ class AjaxSession(AbcSession):
         if not self.base_url or not self.__service_ticket:
             raise RuntimeError(ERROR_NO_SESSION)
         
-        if isinstance(timeout, int):
-            timeout_obj = aiohttp.ClientTimeout(total=timeout)
-        else:
-            timeout_obj = timeout
-            
         async with self.websession.post(
             self.base_url / cmd,
             params={"serviceTicket": self.__service_ticket},
             json=json or {},
-            timeout=timeout_obj,
+            timeout=self._cast_timeout(timeout),
             allow_redirects=False
         ) as response:
-            if response.status == 403:
-                raise AuthenticationError(ERROR_POST_REDIRECTED)
-            if response.status != 200:
-                # assume session is dead and re-login
+            if response.status == 401:
                 if retrying:
-                    # we tried logging in again, but the redirect still happens.
-                    # an exception should have been raised from the login!
-                    raise AuthenticationError(ERROR_POST_REDIRECTED)
+                   # already tried logging in again - give up
+                   raise AuthorizationError(ERROR_POST_REDIRECTED)
                 await self.sz_login()  # try logging in again, then retry post
                 return await self.sz_post(cmd, json, timeout, retrying=True)
-            result_json = await response.json()
-            return result_json
+            return await self._validate_sz_response(response)
+
+    async def sz_put(
+        self,
+        cmd: str,
+        json: dict | None = None,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+        retrying: bool = False
+    ) -> None:
+        """Put SZ Data"""
+        if not self.base_url or not self.__service_ticket:
+            raise RuntimeError(ERROR_NO_SESSION)
+        
+        async with self.websession.put(
+            self.base_url / cmd,
+            params={"serviceTicket": self.__service_ticket},
+            json=json or {},
+            timeout=self._cast_timeout(timeout),
+            allow_redirects=False
+        ) as response:
+            if response.status == 401:
+                if retrying:
+                   # already tried logging in again - give up
+                   raise AuthorizationError(ERROR_POST_REDIRECTED)
+                await self.sz_login()  # try logging in again, then retry post
+                return await self.sz_put(cmd, json, timeout, retrying=True)
+            await self._validate_sz_response(response)
+
+    async def sz_patch(
+        self,
+        cmd: str,
+        json: dict | None = None,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+        retrying: bool = False
+    ) -> None:
+        """Patch SZ Data"""
+        if not self.base_url or not self.__service_ticket:
+            raise RuntimeError(ERROR_NO_SESSION)
+        
+        async with self.websession.put(
+            self.base_url / cmd,
+            params={"serviceTicket": self.__service_ticket},
+            json=json or {},
+            timeout=self._cast_timeout(timeout),
+            allow_redirects=False
+        ) as response:
+            if response.status == 401:
+                if retrying:
+                   # already tried logging in again - give up
+                   raise AuthorizationError(ERROR_POST_REDIRECTED)
+                await self.sz_login()  # try logging in again, then retry post
+                return await self.sz_patch(cmd, json, timeout, retrying=True)
+            await self._validate_sz_response(response)
+
+    async def sz_delete(
+        self,
+        cmd: str,
+        json: dict | None = None,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+        retrying: bool = False
+    ) -> None:
+        """Put SZ Data"""
+        if not self.base_url or not self.__service_ticket:
+            raise RuntimeError(ERROR_NO_SESSION)
+
+        async with self.websession.delete(
+            self.base_url / cmd,
+            params={"serviceTicket": self.__service_ticket},
+            json=json or {},
+            timeout=self._cast_timeout(timeout),
+            allow_redirects=False
+        ) as response:
+            if response.status == 401:
+                if retrying:
+                   # already tried logging in again - give up
+                   raise AuthorizationError(ERROR_POST_REDIRECTED)
+                await self.sz_login()  # try logging in again, then retry post
+                return await self.sz_delete(cmd, json, timeout, retrying=True)
+            await self._validate_sz_response(response)
+    
+    @staticmethod
+    async def _validate_sz_response(response: aiohttp.ClientResponse) -> Any:
+        if response.status == 200:
+            return await response.json() if response.content_type == "application/json" else None
+        if response.status in (201, 204):
+            return None
+        if response.status == 403:
+            raise AuthorizationError(ERROR_POST_REDIRECTED)
+        try:
+            response_json = await response.json()
+            error_code = response_json["errorCode"]
+        except:
+            raise RuntimeError(response.status)
+        raise BusinessRuleError(response_json["message"] if error_code == 0 else f"{response_json["errorType"]}: {response_json["message"]}")
+
+    @staticmethod
+    def _cast_timeout(timeout: aiohttp.ClientTimeout | int | None) -> aiohttp.ClientTimeout | None:
+        return aiohttp.ClientTimeout(total=timeout) if isinstance(timeout, int) else timeout
+    

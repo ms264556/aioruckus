@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 import datetime
 import random
-from re import IGNORECASE, match
+from re import fullmatch, search
 from typing import Any
 import xml.etree.ElementTree as ET
 from xml.sax import saxutils
@@ -129,7 +129,7 @@ class RuckusAjaxApi(RuckusApi):
 
     async def get_ap_events(self, *ap_macs, limit: int = 300) -> list[Event]:
         """Return a list of AP events"""
-        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filters={"ap": list(self._normalize_mac(mac) for mac in ap_macs) if ap_macs else "*"}, limit=limit)]
+        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filters={"ap": list(self.__normalize_mac(mac) for mac in ap_macs) if ap_macs else "*"}, limit=limit)]
 
     async def get_client_events(self, limit: int = 300) -> list[Event]:
         """Return a list of client events"""
@@ -156,7 +156,7 @@ class RuckusAjaxApi(RuckusApi):
 
     async def do_block_client(self, mac: str) -> None:
         """Block a client"""
-        mac = self._normalize_mac(mac)
+        mac = self.__normalize_mac(mac)
         await self.cmdstat(
             f"<ajax-request action='docmd' xcmd='block' checkAbility='10' comp='stamgr'>"
             f"<xcmd check-ability='10' tag='client' acl-id='1' client='{mac}' cmd='block'>"
@@ -165,7 +165,7 @@ class RuckusAjaxApi(RuckusApi):
 
     async def do_unblock_client(self, mac: str) -> None:
         """Unblock a client"""
-        mac = self._normalize_mac(mac)
+        mac = self.__normalize_mac(mac)
         blocked = await self.get_blocked_client_macs()
         remaining = ''.join((
             f"<deny mac='{deny['mac']}' type='single'/>" for deny in blocked
@@ -187,7 +187,7 @@ class RuckusAjaxApi(RuckusApi):
         if len(macs) > 128:
             raise ValueError(ERROR_ACL_TOO_BIG)
 
-        macs = [self._normalize_mac(mac) for mac in macs]
+        macs = [self.__normalize_mac(mac) for mac in macs]
         acl_tag = "deny" if acl["default-mode"] == "allow" else "accept"
 
         acl = ET.Element("acl", {
@@ -348,7 +348,7 @@ class RuckusAjaxApi(RuckusApi):
 
     async def do_hide_ap_leds(self, mac: str, leds_off: bool = True) -> None:
         """Hide AP LEDs"""
-        mac = self._normalize_mac(mac)
+        mac = self.__normalize_mac(mac)
         found_ap = await self._find_ap_by_mac(mac)
         if found_ap:
             ts = self._ruckus_timestamp()
@@ -364,7 +364,7 @@ class RuckusAjaxApi(RuckusApi):
 
     async def do_restart_ap(self, mac: str) -> None:
         """Restart AP"""
-        mac = self._normalize_mac(mac)
+        mac = self.__normalize_mac(mac)
         ts = self._ruckus_timestamp()
         await self._cmdstat_noparse(
             f"<ajax-request action='docmd' xcmd='reset' checkAbility='2' updater='stamgr.{ts}' "
@@ -649,20 +649,25 @@ class RuckusAjaxApi(RuckusApi):
     def _ruckus_backup_timestamp() -> str:
         return datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%y_%H_%M")
 
+    @classmethod
+    def __normalize_mac(cls, mac: str) -> str:
+        """Normalize MAC address format and casing"""
+        return cls._normalize_mac_nocase(mac).lower()
+
     @staticmethod
-    def _normalize_mac(mac: str) -> str:
+    def _normalize_mac_nocase(mac: str) -> str:
         """Normalize MAC address format"""
-        if mac and match(r"(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}", string=mac, flags=IGNORECASE):
-            return mac.replace('-', ':').lower()
+        if mac and fullmatch(r"(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}", mac):
+            return mac.replace('-', ':')
+        elif mac and fullmatch(r'[0-9a-fA-F]{12}', mac):
+            return ":".join(mac[i:i+2] for i in range(0, 12, 2))
         raise ValueError(ERROR_INVALID_MAC)
 
     @staticmethod
     def _validate_passphrase(passphrase: str) -> str:
         """Validate passphrase against ZoneDirector/Unleashed rules"""
-        if passphrase and match(r".*<.*>.*", string=passphrase):
+        if passphrase and search(r"<.*>", string=passphrase):
             raise ValueError(ERROR_PASSPHRASE_JS)
-        if passphrase and match(
-            r"(^[!-~]([ -~]){6,61}[!-~]$)|(^([0-9a-fA-F]){64}$)", string=passphrase
-        ):
+        if passphrase and fullmatch(r"[!-~][ -~]{6,61}[!-~]|[0-9a-fA-F]{64}", passphrase):
             return passphrase
         raise ValueError(ERROR_PASSPHRASE_LEN)

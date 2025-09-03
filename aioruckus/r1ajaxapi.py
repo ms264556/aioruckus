@@ -238,10 +238,6 @@ class R1AjaxApi(RuckusAjaxApi):
         """Hide AP LEDs"""
         raise NotImplementedError
 
-    async def do_show_ap_leds(self, mac: str) -> None:
-        """Show AP LEDs"""
-        raise NotImplementedError
-
     async def do_restart_ap(self, mac: str) -> None:
         """Restart AP"""
         raise NotImplementedError

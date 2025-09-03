@@ -116,7 +116,7 @@ Ap = TypedDict('Ap', {
     "radio": list[Radio],
     "adv-mesh": AdvMesh,
     "ports": Ports,
-    "venue-names": str | None,
+    "venue-names": str,
     "bonjourfencing": BonjourFencing,
     "lacp-state": str,
     "cband-chann": str
