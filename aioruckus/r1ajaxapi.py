@@ -4,6 +4,7 @@ from typing import cast
 
 from .ruckusajaxapi import RuckusAjaxApi
 from .ajaxtyping import *
+from .r1typing import R1Ap
 
 from .const import (
     SystemStat,
@@ -20,10 +21,11 @@ class R1AjaxApi(RuckusAjaxApi):
 
     async def get_aps(self) -> list[Ap]:
         """Return a list of APs"""
-        aps = await self.session.r1_get("venues/aps")
+        aps = await self._get_aps()
         compat_aps = [
             {
                 **ap,
+                "id": ap["mac"],
                 "devname": ap["name"],
                 "version": ap["firmware"],
                 "serial": ap["serialNumber"]
@@ -32,13 +34,17 @@ class R1AjaxApi(RuckusAjaxApi):
         ]
         return cast(list[Ap], compat_aps)
 
+    async def _get_aps(self) -> list[R1Ap]:
+        return await self.session.r1_get("venues/aps")
+
     async def get_ap_groups(self) -> list[ApGroup]:
         """Return a list of AP groups"""
         raise NotImplementedError
 
     async def get_wlans(self) -> list[Wlan]:
         """Return a list of WLANs"""
-        raise NotImplementedError
+        wlans = await self.session.r1_post("wifiNetworks/query", {})
+        return wlans["data"]
 
     async def get_wlan_groups(self) -> list[WlanGroup]:
         """Return a list of WLAN groups"""
@@ -236,8 +242,17 @@ class R1AjaxApi(RuckusAjaxApi):
 
     async def do_hide_ap_leds(self, mac: str, leds_off: bool = True) -> None:
         """Hide AP LEDs"""
-        raise NotImplementedError
+        mac = self.__normalize_mac(mac)
+        aps = await self._get_aps()
+        ap = next((a for a in aps if a["mac"] == mac), None)
+        if ap:
+            await self.session.r1_put(f"venues/{ap["venueId"]}/aps/{ap["serialNumber"]}/ledSettings", { "ledEnabled": not leds_off, "useVenueSettings": False })
 
     async def do_restart_ap(self, mac: str) -> None:
         """Restart AP"""
         raise NotImplementedError
+    
+    @classmethod
+    def __normalize_mac(cls, mac: str) -> str:
+        """Normalize MAC address format and casing"""
+        return cls._normalize_mac_nocase(mac).upper()

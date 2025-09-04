@@ -11,6 +11,7 @@ from .smartzonetyping import SzPermissionCategories, SzSession
 from .abcsession import AbcSession, ConfigItem
 from .exceptions import AuthenticationError, AuthorizationError, BusinessRuleError
 from .const import (
+    ERROR_POST_BADRESULT,
     ERROR_POST_NORESULT,
     ERROR_POST_REDIRECTED,
     ERROR_CONNECT_EOF,
@@ -428,29 +429,73 @@ class AjaxSession(AbcSession):
         """Get R1 Data"""
         if not self.base_url or not self.__bearer_token:
             raise RuntimeError(ERROR_NO_SESSION)
-        
-        if isinstance(timeout, int):
-            timeout_obj = aiohttp.ClientTimeout(total=timeout)
-        else:
-            timeout_obj = timeout
             
         async with self.websession.get(
             self.base_url / cmd,
             headers={"Authorization": self.__bearer_token},
             params=params,
-            timeout=timeout_obj,
+            timeout=self._cast_timeout(timeout),
             allow_redirects=False
         ) as response:
-            if response.status != 200:
-                # assume session is dead and re-login
+            if response.status == 401:
                 if retrying:
-                    # we tried logging in again, but the redirect still happens.
-                    # an exception should have been raised from the login!
-                    raise AuthenticationError(ERROR_POST_REDIRECTED)
-                await self.r1_login()  # try logging in again, then retry post
+                    # already tried logging in again - give up
+                    raise AuthorizationError(ERROR_POST_REDIRECTED)
+                await self.r1_login()
                 return await self.r1_get(cmd, params, timeout, retrying=True)
-            result_json = await response.json()
-            return result_json
+            return await self._validate_r1_response(response)
+
+    async def r1_post(
+        self,
+        cmd: str,
+        json: dict | None = None,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+        retrying: bool = False
+    ) -> Any:
+        """Put R1 Data"""
+        if not self.base_url or not self.__bearer_token:
+            raise RuntimeError(ERROR_NO_SESSION)
+            
+        async with self.websession.post(
+            self.base_url / cmd,
+            headers={"Authorization": self.__bearer_token},
+            json=json or {},
+            timeout=self._cast_timeout(timeout),
+            allow_redirects=False
+        ) as response:
+            if response.status == 401:
+                if retrying:
+                    # already tried logging in again - give up
+                    raise AuthorizationError(ERROR_POST_REDIRECTED)
+                await self.r1_login()
+                await self.r1_post(cmd, json, timeout, retrying=True)
+            return await self._validate_r1_response(response)    
+
+    async def r1_put(
+        self,
+        cmd: str,
+        json: dict | None = None,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+        retrying: bool = False
+    ) -> None:
+        """Put R1 Data"""
+        if not self.base_url or not self.__bearer_token:
+            raise RuntimeError(ERROR_NO_SESSION)
+            
+        async with self.websession.put(
+            self.base_url / cmd,
+            headers={"Authorization": self.__bearer_token},
+            json=json or {},
+            timeout=self._cast_timeout(timeout),
+            allow_redirects=False
+        ) as response:
+            if response.status == 401:
+                if retrying:
+                    # already tried logging in again - give up
+                    raise AuthorizationError(ERROR_POST_REDIRECTED)
+                await self.r1_login()
+                await self.r1_put(cmd, json, timeout, retrying=True)
+            await self._validate_r1_response(response)    
 
     async def sz_get(
         self,
@@ -589,9 +634,9 @@ class AjaxSession(AbcSession):
     async def _validate_sz_response(response: aiohttp.ClientResponse) -> Any:
         if response.status == 200:
             return await response.json() if response.content_type == "application/json" else None
-        if response.status in (201, 204):
+        elif response.status in (201, 202, 204):
             return None
-        if response.status == 403:
+        elif response.status == 403:
             raise AuthorizationError(ERROR_POST_REDIRECTED)
         try:
             response_json = await response.json()
@@ -599,6 +644,39 @@ class AjaxSession(AbcSession):
         except:
             raise RuntimeError(response.status)
         raise BusinessRuleError(response_json["message"] if error_code == 0 else f"{response_json["errorType"]}: {response_json["message"]}")
+
+    async def _validate_r1_response(self, response: aiohttp.ClientResponse, fire_and_forget: bool = False) -> Any:
+        assert self.base_url and self.__bearer_token
+        if response.status == 200:
+            return await response.json() if response.content_type.endswith("json") else None
+        elif response.status == 202 and not fire_and_forget:
+            request_id = (await response.json())["requestId"]
+            for i in range(4):
+                async with self.websession.get(
+                    self.base_url / f"activities/{request_id}",
+                    headers={"Authorization": self.__bearer_token},
+                    timeout=self._cast_timeout(3),
+                    allow_redirects=False
+                ) as activity_update:
+                    activity_json = await activity_update.json()
+                    activity_status = activity_json.get("status")
+                    if activity_status == "SUCCESS":
+                        return
+                    if activity_status == "FAIL":
+                        raise RuntimeError(activity_json.get("error", ERROR_POST_BADRESULT))
+                    await asyncio.sleep(i + 1)
+            raise RuntimeError(ERROR_CONNECT_TIMEOUT)
+        elif response.status in (201, 202, 204):
+            return None
+        elif response.status == 403:
+            raise AuthorizationError(ERROR_POST_REDIRECTED)
+        try:
+            response_json = await response.json()
+            response_error = response_json["errors"][0]
+        except:
+            raise RuntimeError(response.status)
+        raise BusinessRuleError(f"{response_error["message"]}: {response_error["reason"]}")
+
 
     @staticmethod
     def _cast_timeout(timeout: aiohttp.ClientTimeout | int | None) -> aiohttp.ClientTimeout | None:
