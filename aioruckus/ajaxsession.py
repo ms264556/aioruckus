@@ -476,6 +476,7 @@ class AjaxSession(AbcSession):
         cmd: str,
         json: dict | None = None,
         timeout: aiohttp.ClientTimeout | int | None = None,
+        fire_and_forget: bool = False,
         retrying: bool = False
     ) -> None:
         """Put R1 Data"""
@@ -494,8 +495,62 @@ class AjaxSession(AbcSession):
                     # already tried logging in again - give up
                     raise AuthorizationError(ERROR_POST_REDIRECTED)
                 await self.r1_login()
-                await self.r1_put(cmd, json, timeout, retrying=True)
-            await self._validate_r1_response(response)    
+                await self.r1_put(cmd, json, timeout, fire_and_forget, retrying=True)
+            await self._validate_r1_response(response, fire_and_forget)    
+
+    async def r1_patch(
+        self,
+        cmd: str,
+        json: dict | None = None,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+        fire_and_forget: bool = False,
+        retrying: bool = False
+    ) -> None:
+        """Delete R1 Data"""
+        if not self.base_url or not self.__bearer_token:
+            raise RuntimeError(ERROR_NO_SESSION)
+            
+        async with self.websession.patch(
+            self.base_url / cmd,
+            headers={"Authorization": self.__bearer_token},
+            json=json or {},
+            timeout=self._cast_timeout(timeout),
+            allow_redirects=False
+        ) as response:
+            if response.status == 401:
+                if retrying:
+                    # already tried logging in again - give up
+                    raise AuthorizationError(ERROR_POST_REDIRECTED)
+                await self.r1_login()
+                await self.r1_patch(cmd, json, timeout, fire_and_forget, retrying=True)
+            await self._validate_r1_response(response, fire_and_forget)
+
+    async def r1_delete(
+        self,
+        cmd: str,
+        json: dict | None = None,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+        fire_and_forget: bool = False,
+        retrying: bool = False
+    ) -> None:
+        """Delete R1 Data"""
+        if not self.base_url or not self.__bearer_token:
+            raise RuntimeError(ERROR_NO_SESSION)
+            
+        async with self.websession.delete(
+            self.base_url / cmd,
+            headers={"Authorization": self.__bearer_token},
+            json=json or {},
+            timeout=self._cast_timeout(timeout),
+            allow_redirects=False
+        ) as response:
+            if response.status == 401:
+                if retrying:
+                    # already tried logging in again - give up
+                    raise AuthorizationError(ERROR_POST_REDIRECTED)
+                await self.r1_login()
+                await self.r1_delete(cmd, json, timeout, fire_and_forget, retrying=True)
+            await self._validate_r1_response(response, fire_and_forget)
 
     async def sz_get(
         self,
@@ -652,6 +707,7 @@ class AjaxSession(AbcSession):
         elif response.status == 202 and not fire_and_forget:
             request_id = (await response.json())["requestId"]
             for i in range(4):
+                await asyncio.sleep(i)
                 async with self.websession.get(
                     self.base_url / f"activities/{request_id}",
                     headers={"Authorization": self.__bearer_token},
@@ -664,12 +720,14 @@ class AjaxSession(AbcSession):
                         return
                     if activity_status == "FAIL":
                         raise RuntimeError(activity_json.get("error", ERROR_POST_BADRESULT))
-                    await asyncio.sleep(i + 1)
             raise RuntimeError(ERROR_CONNECT_TIMEOUT)
         elif response.status in (201, 202, 204):
             return None
         elif response.status == 403:
             raise AuthorizationError(ERROR_POST_REDIRECTED)
+        elif response.status == 400:
+            response_json = await response.json()
+            raise BusinessRuleError(f"{response_json["error"]}: {response_json["path"]}")
         try:
             response_json = await response.json()
             response_error = response_json["errors"][0]

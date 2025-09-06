@@ -114,3 +114,19 @@ class R1Ap(TypedDict, total=False):
     tags: list[str]
     uptime_seconds: int
     venueId: Required[str]
+
+class R1AccessControlPolicy(TypedDict, total=False):
+    name: Required[str]
+    macAddresses: Required[list[str]]
+    id: Required[str]
+    access: Literal["ALLOW", "BLOCK"]
+    description: str
+    wifiNetworkIds: list[str]
+
+class R1AccessControlProfile(TypedDict, total=False):
+    id: Required[str]
+    name: Required[str]
+    l2AclPolicyId: str
+    l2AclPolicy: R1AccessControlPolicy
+    wifiNetworkIds: list[str]
+
