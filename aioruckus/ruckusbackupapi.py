@@ -4,11 +4,11 @@ from __future__ import annotations
 from .const import SystemStat
 from .abcsession import ConfigItem
 from .backupsession import BackupSession
-from .ruckusapi import RuckusApi
+from .ruckusconfigurationapi import RuckusConfigurationApi
 from .ajaxtyping import Mesh
 
-class RuckusBackupApi(RuckusApi):
-    """Ruckus ZoneDirector or Unleashed Configuration, Statistics and Commands API"""
+class RuckusBackupApi(RuckusConfigurationApi):
+    """Ruckus ZoneDirector/Unleashed Configuration API"""
     session: BackupSession
 
     def __init__(self, session: BackupSession):

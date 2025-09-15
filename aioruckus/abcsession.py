@@ -5,7 +5,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .ruckusapi import RuckusApi
+    from .ruckusconfigurationapi import RuckusConfigurationApi
 
 class ConfigItem(Enum):
     """Ruckus configuration keys"""
@@ -40,7 +40,7 @@ class AbcSession(ABC):
 
     @property
     @abstractmethod
-    def api(self) -> RuckusApi:
+    def api(self) -> RuckusConfigurationApi:
         """Return a RuckusApi instance."""
         raise NotImplementedError()
 
