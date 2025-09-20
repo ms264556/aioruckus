@@ -2,8 +2,6 @@
 from __future__ import annotations
 from collections.abc import AsyncIterator
 import datetime
-import random
-from re import fullmatch, search
 from typing import Any
 import xml.etree.ElementTree as ET
 from xml.sax import saxutils
@@ -15,9 +13,6 @@ from .const import (
     ERROR_ACL_NOT_FOUND,
     ERROR_ACL_SYSTEM,
     ERROR_ACL_TOO_BIG,
-    ERROR_INVALID_MAC,
-    ERROR_PASSPHRASE_LEN,
-    ERROR_PASSPHRASE_JS,
     ERROR_PASSPHRASE_MISSING,
     ERROR_SAEPASSPHRASE_MISSING,
     ERROR_INVALID_WLAN,
@@ -28,15 +23,20 @@ from .const import (
 )
 from .abcsession import ConfigItem
 from .ajaxsession import AjaxSession
-from .ruckusapi import RuckusApi
+from .ruckusconfigurationapi import RuckusConfigurationApi
+from .utility import *
 
 
-class RuckusAjaxApi(RuckusApi):
+class RuckusAjaxApi(RuckusConfigurationApi):
     """Ruckus ZoneDirector or Unleashed Configuration, Statistics and Commands API"""
     session: AjaxSession
 
     def __init__(self, session: AjaxSession):
         super().__init__(session)
+
+    async def close(self) -> None:
+        # handled by parent session for Unleashed/ZoneDirector
+        pass
 
     async def get_system_info(self, *sections: SystemStat) -> dict:
         section_keys: list[str]
@@ -115,33 +115,33 @@ class RuckusAjaxApi(RuckusApi):
         """Return a list of user blocked rogues devices"""
         return [rogue async for rogue in self.cmdstat_piecewise("stamgr", "rogue", "apstamgr-stat", filters={"LEVEL": "1", "blocked": "true"}, updater="brogue", limit=limit)]
 
-    async def get_all_alarms(self, limit: int = 300) -> list[Alarm]:
-        """Return a list of all alerts"""
-        return [alarm async for alarm in self.cmdstat_piecewise("eventd", "alarm", updater="page", limit=limit)]
+    async def get_alarms(self, limit: int = 300, filters: dict | None = None) -> list[Alarm]:
+        """Return a list of alerts"""
+        return [alarm async for alarm in self.cmdstat_piecewise("eventd", "alarm", updater="page", filters=filters, limit=limit)]
 
-    async def get_all_events(self, limit: int = 300) -> list[Event]:
-        """Return a list of all events"""
-        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", limit=limit)]
+    async def get_events(self, limit: int = 300, filters: dict | None = None)-> list[Event]:
+        """Return a list of events"""
+        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filters=filters, limit=limit)]
 
     async def get_wlan_events(self, *wlan_ids, limit: int = 300) -> list[Event]:
         """Return a list of WLAN events"""
-        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filters={"wlan": list(wlan_ids) if wlan_ids else "*"}, limit=limit)]
+        return await self.get_events(limit, {"wlan": list(wlan_ids) if wlan_ids else "*"})
 
     async def get_ap_events(self, *ap_macs, limit: int = 300) -> list[Event]:
         """Return a list of AP events"""
-        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filters={"ap": list(self.__normalize_mac(mac) for mac in ap_macs) if ap_macs else "*"}, limit=limit)]
+        return await self.get_events(limit, {"ap": list(normalize_mac_lower(mac) for mac in ap_macs) if ap_macs else "*"})
 
     async def get_client_events(self, limit: int = 300) -> list[Event]:
         """Return a list of client events"""
-        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filters={"c": "user"}, limit=limit)]
+        return await self.get_events(limit, {"c": "user"})
 
     async def get_wired_client_events(self, limit: int = 300) -> list[Event]:
         """Return a list of wired client events"""
-        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filters={"c": "wire"}, limit=limit)]
+        return await self.get_events(limit, {"c": "wire"})
 
     async def get_syslog(self) -> str:
         """Return a list of syslog entries"""
-        ts = self._ruckus_timestamp()
+        ts = ruckus_timestamp()
         syslog = await self.cmdstat(
             f"<ajax-request action='docmd' xcmd='get-syslog' updater='system.{ts}' comp='system'>"
             f"<xcmd cmd='get-syslog' type='sys'/></ajax-request>"
@@ -151,12 +151,13 @@ class RuckusAjaxApi(RuckusApi):
     async def get_backup(self) -> bytes:
         """Return a backup"""
         assert self.session.base_url is not None
-        request = self.session.base_url / f"_savebackup.jsp?time={self._ruckus_backup_timestamp()}"
+        backup_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%y_%H_%M")
+        request = (self.session.base_url / "_savebackup.jsp").with_query({"time": backup_timestamp})
         return await self.session.request_file(request, 60)
 
     async def do_block_client(self, mac: str) -> None:
         """Block a client"""
-        mac = self.__normalize_mac(mac)
+        mac = normalize_mac_lower(mac)
         await self.cmdstat(
             f"<ajax-request action='docmd' xcmd='block' checkAbility='10' comp='stamgr'>"
             f"<xcmd check-ability='10' tag='client' acl-id='1' client='{mac}' cmd='block'>"
@@ -165,7 +166,7 @@ class RuckusAjaxApi(RuckusApi):
 
     async def do_unblock_client(self, mac: str) -> None:
         """Unblock a client"""
-        mac = self.__normalize_mac(mac)
+        mac = normalize_mac_lower(mac)
         blocked = await self.get_blocked_client_macs()
         remaining = ''.join((
             f"<deny mac='{deny['mac']}' type='single'/>" for deny in blocked
@@ -187,7 +188,7 @@ class RuckusAjaxApi(RuckusApi):
         if len(macs) > 128:
             raise ValueError(ERROR_ACL_TOO_BIG)
 
-        macs = [self.__normalize_mac(mac) for mac in macs]
+        macs = [normalize_mac_lower(mac) for mac in macs]
         acl_tag = "deny" if acl["default-mode"] == "allow" else "accept"
 
         acl = ET.Element("acl", {
@@ -209,7 +210,7 @@ class RuckusAjaxApi(RuckusApi):
         ap_group = await self._find_ap_group_by_name(name)
         if ap_group is None:
             return False
-        ts = self._ruckus_timestamp()
+        ts = ruckus_timestamp()
         await self._do_conf(
             f"<ajax-request action='delobj' updater='apgroup-list.{ts}' comp='apgroup-list'>"
             f"<apgroup id='{ap_group['id']}'/></ajax-request>"
@@ -220,7 +221,7 @@ class RuckusAjaxApi(RuckusApi):
         """Disable a WLAN"""
         wlan = await self._find_wlan_by_name(name)
         if wlan:
-            ts = self._ruckus_timestamp()
+            ts = ruckus_timestamp()
             await self._do_conf(
                 f"<ajax-request action='updobj' updater='wlansvc-list.{ts}' comp='wlansvc-list'>"
                 f"<wlansvc id='{wlan['id']}' name='{wlan['name']}' "
@@ -291,7 +292,7 @@ class RuckusAjaxApi(RuckusApi):
         wlan = await self._find_wlan_by_name(name)
         if wlan is None:
             return False
-        ts = self._ruckus_timestamp()
+        ts = ruckus_timestamp()
         await self._do_conf(
             f"<ajax-request action='delobj' updater='wlansvc-list.{ts}' comp='wlansvc-list'>"
             f"<wlansvc id='{wlan['id']}'/></ajax-request>", timeout=20
@@ -339,7 +340,7 @@ class RuckusAjaxApi(RuckusApi):
         wlang = await self._find_wlan_group_by_name(name)
         if wlang is None:
             return False
-        ts = self._ruckus_timestamp()
+        ts = ruckus_timestamp()
         await self._do_conf(
             f"<ajax-request action='delobj' updater='wlangroup-list.{ts}' comp='wlangroup-list'>"
             f"<wlangroup id='{wlang['id']}'/></ajax-request>"
@@ -348,10 +349,10 @@ class RuckusAjaxApi(RuckusApi):
 
     async def do_hide_ap_leds(self, mac: str, leds_off: bool = True) -> None:
         """Hide AP LEDs"""
-        mac = self.__normalize_mac(mac)
+        mac = normalize_mac_lower(mac)
         found_ap = await self._find_ap_by_mac(mac)
         if found_ap:
-            ts = self._ruckus_timestamp()
+            ts = ruckus_timestamp()
             await self._do_conf(
                 f"<ajax-request action='updobj' updater='ap-list.{ts}' comp='ap-list'>"
                 f"<ap id='{found_ap['id']}' IS_PARTIAL='true' led-off='{str(leds_off).lower()}' />"
@@ -364,8 +365,8 @@ class RuckusAjaxApi(RuckusApi):
 
     async def do_restart_ap(self, mac: str) -> None:
         """Restart AP"""
-        mac = self.__normalize_mac(mac)
-        ts = self._ruckus_timestamp()
+        mac = normalize_mac_lower(mac)
+        ts = ruckus_timestamp()
         await self._cmdstat_noparse(
             f"<ajax-request action='docmd' xcmd='reset' checkAbility='2' updater='stamgr.{ts}' "
             f"comp='stamgr'><xcmd cmd='reset' ap='{mac}' tag='ap' checkAbility='2'/></ajax-request>"
@@ -391,6 +392,7 @@ class RuckusAjaxApi(RuckusApi):
 
     @staticmethod
     def _get_default_cli_wlan_template() -> ET.Element:
+        """Default WLAN for when (very old) ZDs don't provide one via AJAX"""
         wlansvc = ET.Element("wlansvc", {
             "name": "default-standard-wlan", "ssid": "", "authentication": "open",
             "encryption": "none", "is-guest": "false", "max-clients-per-radio": "100",
@@ -421,9 +423,9 @@ class RuckusAjaxApi(RuckusApi):
         patch_wpa = patch.get("wpa")
         if patch_wpa is not None:
             if "passphrase" in patch_wpa:
-                self._validate_passphrase(patch_wpa["passphrase"])
+                validate_passphrase(patch_wpa["passphrase"])
             if "sae-passphrase" in patch_wpa:
-                self._validate_passphrase(patch_wpa["sae-passphrase"])
+                validate_passphrase(patch_wpa["sae-passphrase"])
 
         encryption = wlansvc.get("encryption")
         if "encryption" in patch and patch["encryption"] != encryption:
@@ -532,7 +534,7 @@ class RuckusAjaxApi(RuckusApi):
 
     async def _get_timestamp_at_controller(self) -> int:
         """Get timestamp at controller"""
-        ts = self._ruckus_timestamp()
+        ts = ruckus_timestamp()
         time_info = await self.cmdstat(
             f"<ajax-request action='getstat' updater='system.{ts}' comp='system'>"
             f"<time/></ajax-request>"
@@ -557,8 +559,8 @@ class RuckusAjaxApi(RuckusApi):
     ) -> AsyncIterator[Any]:
         """Call cmdstat and parse piecewise xml results"""
 
-        ts_time = self._ruckus_timestamp(random_part=False)
-        ts_random = self._ruckus_timestamp(time_part=False)
+        ts_time = ruckus_timestamp(random_part=False)
+        ts_random = ruckus_timestamp(time_part=False)
         updater = updater or comp
         page_size = page_size or limit
 
@@ -640,34 +642,3 @@ class RuckusAjaxApi(RuckusApi):
         result = await self.conf(data, collection_elements, timeout)
         if "xmsg" in result:
             raise ValueError(result["xmsg"]["lmsg"])
-
-    @staticmethod
-    def _ruckus_timestamp(time_part: bool = True, random_part: bool = True) -> str:
-        return f"{int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000) if time_part else ''}{('.' if time_part and random_part else '')}{int(9000 * random.random()) + 1000 if random_part else ''}"
-
-    @staticmethod
-    def _ruckus_backup_timestamp() -> str:
-        return datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%y_%H_%M")
-
-    @classmethod
-    def __normalize_mac(cls, mac: str) -> str:
-        """Normalize MAC address format and casing"""
-        return cls._normalize_mac_nocase(mac).lower()
-
-    @staticmethod
-    def _normalize_mac_nocase(mac: str) -> str:
-        """Normalize MAC address format"""
-        if mac and fullmatch(r"(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}", mac):
-            return mac.replace('-', ':')
-        elif mac and fullmatch(r'[0-9a-fA-F]{12}', mac):
-            return ":".join(mac[i:i+2] for i in range(0, 12, 2))
-        raise ValueError(ERROR_INVALID_MAC)
-
-    @staticmethod
-    def _validate_passphrase(passphrase: str) -> str:
-        """Validate passphrase against ZoneDirector/Unleashed rules"""
-        if passphrase and search(r"<.*>", string=passphrase):
-            raise ValueError(ERROR_PASSPHRASE_JS)
-        if passphrase and fullmatch(r"[!-~][ -~]{6,61}[!-~]|[0-9a-fA-F]{64}", passphrase):
-            return passphrase
-        raise ValueError(ERROR_PASSPHRASE_LEN)

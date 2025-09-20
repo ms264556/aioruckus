@@ -18,8 +18,8 @@ from .ajaxtyping import Ap, ApGroup, ArcApplication, ArcPolicy, ArcPort, DeviceP
 from .abcsession import AbcSession, ConfigItem
 from .const import ERROR_POST_BADRESULT, URL_FILTERING_CATEGORIES, SystemStat
 
-class RuckusApi(ABC):
-    """Ruckus ZoneDirector or Unleashed Configuration API"""
+class RuckusConfigurationApi(ABC):
+    """Ruckus ZoneDirector/Unleashed Configuration API"""
     def __init__(self, session: AbcSession):
         self.session = session
 
@@ -335,7 +335,7 @@ class RuckusApi(ABC):
             xml,
             encoding="utf-8",
             attr_prefix='',
-            postprocessor=RuckusApi._process_ruckus_xml,
+            postprocessor=RuckusConfigurationApi._process_ruckus_xml,
             force_list=force_list
         )
         collection_list = ([] if not collection_elements else [f"{ce}-list" for ce in collection_elements] + collection_elements)
@@ -353,7 +353,7 @@ class RuckusApi(ABC):
     def _process_ruckus_xml(path, key, value):
         if key.startswith("x-"):
             # passphrases are obfuscated and stored with an x- prefix; decrypt these
-            return key[2:], RuckusApi._decrypt_value(key, value) if value else value
+            return key[2:], RuckusConfigurationApi._decrypt_value(key, value) if value else value
         if key == "apstamgr-stat" and not value:
             # return an empty array rather than None, for ease of use
             return key, []
@@ -419,7 +419,7 @@ class RuckusApi(ABC):
         }
         current_value_lowered = current_value.lower()
         if current_value_lowered in normalization_map:
-            new_value = RuckusApi._parse_conf_bool(new_value)
+            new_value = RuckusConfigurationApi._parse_conf_bool(new_value)
             if isinstance(new_value, bool):
                 true_value, false_value = normalization_map[current_value_lowered]
                 new_value = true_value if new_value else false_value
