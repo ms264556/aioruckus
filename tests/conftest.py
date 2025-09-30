@@ -11,38 +11,55 @@ def aiohttp_context():
     with aioresponses() as m:
         # Unleashed and ZoneDirector
         m.head(
-            re.compile(r"^https?://192.168.0.2/?$"),
+            re.compile(r"^https?://192\.168\.0\.2/?$"),
             status=302,
             headers={"Location": "https://my.controller/admin/login.jsp"},
             repeat=True,
         )
         m.head(
-            re.compile(r"^https?://192.168.0.1/?$"),
+            re.compile(r"^https?://192\.168\.0\.1/?$"),
             exception=TimeoutError(),
             repeat=True,
         )
         m.head(
-            re.compile(r"^https?://127.0.0.1/?$"),
+            re.compile(r"^https?://127\.0\.0\.1/?$"),
             exception=ClientConnectorError(None, OSError()),
             repeat=True,
         )
         m.head(
-            "https://my.controller/admin/login.jsp?ok=Log+In&password=sp-admin&username=super",
+            re.compile(r"^https?://active\.cluster\.node/?$"),
+            status=302,
+            headers={"Location": "https://active.cluster.node/admin10/login.jsp"},
+            repeat=True,
+        )
+        m.head(
+            re.compile(r"^https?://standby\.cluster\.node/?$"),
+            status=302,
+            headers={"Location": "https://standby.cluster.node/admin10/login.jsp"},
+            repeat=True,
+        )
+        m.head(
+            re.compile(
+                r"https://[^/]+/admin(?:10)?/login\.jsp\?ok=Log\+In&password=sp-admin&username=super",
+            ),
             status=302,
             headers={"HTTP_X_CSRF_TOKEN": "dummy_token"},
             repeat=True,
         )
         m.head(
             re.compile(
-                r"^https?://[^/]+/admin/login\.jsp\?ok=.*&password=.*&username=.*"
+                r"^https?://[^/]+/admin(?:10)?/login\.jsp\?ok=.*&password=.*&username=.*"
             ),
             status=200,
             repeat=True,
         )
         m.head(
-            "https://my.controller/admin/login.jsp?logout=1", status=302, repeat=True
+            re.compile(
+                r"https://[^/]+/admin(?:10)?/login\.jsp\?logout=1"
+            ),
+            status=302,
+            repeat=True
         )
-        # Ruckus One
         m.post(
             re.compile(r"^https://api\.(?:eu\.|asia\.)ruckus\.cloud/oauth2/token/5dd1000334cc2a01fcf28a740a6c95cf$"),
             payload={'access_token': 'dummy_bearer_token', 'token_type': 'Bearer', 'expires_in': 7199},
@@ -91,8 +108,12 @@ def create_r1_session():
 
 
 @pytest.fixture
-def create_ajax_session():
+def create_ajax_session(aiohttp_context):
     def _create_ajax_session():
+        aiohttp_context.post(
+            re.compile(r"^https?://[^/]+/admin(?:10)?/_(?:conf|cmdstat).jsp"),
+            callback=unleashed_callback_factory(0),
+        )
         return AjaxSession.async_create("192.168.0.2", "super", "sp-admin")
 
     return _create_ajax_session
@@ -121,6 +142,11 @@ def unleashed_callback_factory(child_count):
                 '<client mac="0a:23:ab:ad:d0:0d" ap="80:03:84:3f:88:d0" ip="192.168.0.24" hostname="LaptopComputer" />',
             ]
             content = f"<apstamgr-stat>{''.join(_clients[:child_count])}</apstamgr-stat>"
+        elif data == '<ajax-request action="getstat" comp="cluster"/>' and "cluster" in url.host:
+            if "standby" in url.host:
+                content = f'<response><xmsg to-state="1" peer-state="0" ip="192.168.0.5" peer-ip="192.168.0.6" mgmt-ip="192.168.0.7" /></response>'
+            else:
+                content = f'<response><xmsg to-state="0" peer-state="1" ip="192.168.0.5" peer-ip="192.168.0.6" mgmt-ip="192.168.0.7" /></response>'
         elif data.startswith("<ajax-request action='getconf'") and data.endswith(" comp='mesh-list'/>"):
             content = '<mesh-list><mesh id="1" name="Mesh-Backbone" x-psk="" psk="" /></mesh-list>'
         else:
@@ -136,8 +162,11 @@ def unleashed_callback_factory(child_count):
 def set_ajax_results(aiohttp_context):
     def _handle_conf(child_count):
         aiohttp_context.post(
-            re.compile(r"^https?://[^/]+/admin/_(?:conf|cmdstat).jsp"),
+            re.compile(r"^https?://[^/]+/admin(?:10)?/_(?:conf|cmdstat).jsp"),
             callback=unleashed_callback_factory(child_count),
         )
 
     return _handle_conf
+
+def cmdstat_callback(url, **kwargs):
+    return CallbackResult(body="\n", status=200)

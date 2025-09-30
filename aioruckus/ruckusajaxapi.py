@@ -552,7 +552,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
     ) -> Any:
         """Call cmdstat and parse xml result"""
         result_text = await self._cmdstat_noparse(data, timeout)
-        return self._ruckus_xml_unwrap(result_text, collection_elements, aggressive_unwrap)
+        return unwrap_xml(result_text, collection_elements, aggressive_unwrap)
 
     async def cmdstat_piecewise(
         self, comp: str, element_type: str, element_collection: str | None = None, filters: dict[str, Any] | None = None, limit: int = 300, page_size: int | None = None,  updater: str | None = None, timeout: int | None = None
@@ -633,7 +633,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
     ) -> Any:
         """Call conf and parse xml result"""
         result_text = await self._conf_noparse(data, timeout)
-        return self._ruckus_xml_unwrap(result_text, collection_elements)
+        return unwrap_xml(result_text, collection_elements)
 
     async def _do_conf(
         self, data: str, collection_elements: list[str] | None = None, timeout: int | None = None

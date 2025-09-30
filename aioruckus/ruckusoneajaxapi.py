@@ -29,7 +29,12 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         super().__init__(session)
 
     async def login(self) -> RuckusOneAjaxApi:
-        self.__session = await RuckusOneSession(self.session.host, self.session.username, self.session.password).login()
+        self.__session = await RuckusOneSession(
+            self.session.host,
+            self.session.username,
+            self.session.password,
+            self.session.websession
+        ).login()
         return self
 
     async def close(self) -> None:

@@ -5,18 +5,10 @@ import asyncio
 from copy import deepcopy
 from typing import Any
 
-from cryptography.hazmat.primitives.padding import PKCS7
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-
-import base64
-import binascii
-import xmltodict
-
-from .exceptions import SchemaError
-from .ajaxtyping import Ap, ApGroup, ArcApplication, ArcPolicy, ArcPort, DevicePolicy, Dpsk, Ip4Policy, Ip6Policy, L2Policy, L2Rule, Mesh, PrecedencePolicy, Role, UrlBlockCategory, UrlFilter, Wlan, WlanGroup
-
 from .abcsession import AbcSession, ConfigItem
-from .const import ERROR_POST_BADRESULT, URL_FILTERING_CATEGORIES, SystemStat
+from .ajaxtyping import Ap, ApGroup, ArcApplication, ArcPolicy, ArcPort, DevicePolicy, Dpsk, Ip4Policy, Ip6Policy, L2Policy, L2Rule, Mesh, PrecedencePolicy, Role, UrlBlockCategory, UrlFilter, Wlan, WlanGroup
+from .const import URL_FILTERING_CATEGORIES, SystemStat
+from .utility import unwrap_xml
 
 class RuckusConfigurationApi(ABC):
     """Ruckus ZoneDirector/Unleashed Configuration API"""
@@ -327,80 +319,12 @@ class RuckusConfigurationApi(ABC):
         # blocklist is always first acl
         return acls[0].get("deny", []) if acls else []
 
-    @staticmethod
-    def _ruckus_xml_unwrap(xml: str, collection_elements: list[str] | None = None, aggressive_unwrap: bool = True) -> dict | list[dict]:
-        # convert xml and unwrap collection
-        force_list = None if not collection_elements else {ce: True for ce in collection_elements}
-        result = xmltodict.parse(
-            xml,
-            encoding="utf-8",
-            attr_prefix='',
-            postprocessor=RuckusConfigurationApi._process_ruckus_xml,
-            force_list=force_list
-        )
-        collection_list = ([] if not collection_elements else [f"{ce}-list" for ce in collection_elements] + collection_elements)
-        try:
-            result = result["ajax-response"]["response"]
-        except KeyError as kerr:
-            raise SchemaError(ERROR_POST_BADRESULT) from kerr
-
-        for key in (["apstamgr-stat"] if aggressive_unwrap else []) + collection_list:
-            if result and key and key in result:
-                result = result[key]
-        return result or []
-
-    @staticmethod
-    def _process_ruckus_xml(path, key, value):
-        if key.startswith("x-"):
-            # passphrases are obfuscated and stored with an x- prefix; decrypt these
-            return key[2:], RuckusConfigurationApi._decrypt_value(key, value) if value else value
-        if key == "apstamgr-stat" and not value:
-            # return an empty array rather than None, for ease of use
-            return key, []
-        if (
-            (key == "accept" or key == "deny") and not value and
-            path and len(path) > 0 and path[-1][0] == "acl"
-        ):
-            return key, []
-        if (
-            key == "status" and
-            value and value.isnumeric() and
-            path and len(path) > 0 and path[-1][0] == "client"
-        ):
-            # client status is numeric code for active, and name for inactive.
-            # show name for everything
-            description = (
-                "Authorized" if value == "1" else
-                "Authenticating" if value == "2" else
-                "PSK Expired" if value == "3" else
-                "Authorized(Deny)" if value == "4" else
-                "Authorized(Permit)" if value == "5" else
-                "Unauthorized"
-            )
-            return key, description
-        return key, value
-
-    @staticmethod
-    def _decrypt_value(key: str, encrypted_string: str) -> str:
-        if key == "x-password" and len(encrypted_string) >= 16 and len(encrypted_string) % 4 == 0 and all(c.isalnum() or c in '/+=' for c in encrypted_string):
-            try:
-                encrypted_bytes = base64.b64decode(encrypted_string, validate=True)
-                if len(encrypted_bytes) in (16, 32, 48):
-                    decryptor = Cipher(algorithms.AES(b'Svdlvt`Jefoujgz`QXE`ALFZ'), modes.ECB()).decryptor()
-                    padded_bytes = decryptor.update(encrypted_bytes) + decryptor.finalize()
-                    unpadder = PKCS7(128).unpadder()
-                    decrypted_bytes = unpadder.update(padded_bytes) + unpadder.finalize()
-                    return decrypted_bytes.decode('utf-8')
-            except binascii.Error:
-                pass
-        return ''.join(chr(ord(letter) - 1) for letter in encrypted_string)
-
     async def _get_conf(
         self, item: ConfigItem, collection_elements: list[str] | None = None
     ) -> Any:
         """Return the relevant config xml, given a configuration key"""
         result_text = await self.session.get_conf_str(item)
-        return self._ruckus_xml_unwrap(result_text, collection_elements)
+        return unwrap_xml(result_text, collection_elements)
 
     @staticmethod
     def _normalize_conf_value(current_value: str, new_value: Any) -> str:

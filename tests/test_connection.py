@@ -18,10 +18,26 @@ async def test_r1_connect_authentication_error():
             pass
 
 @pytest.mark.asyncio
-async def test_connect_success():
+async def test_connect_success(set_ajax_results):
     """Normal connection / disconnection."""
+    set_ajax_results(0)
     async with AjaxSession.async_create("192.168.0.2", "super", "sp-admin") as session:
         pass
+
+@pytest.mark.asyncio
+async def test_connect_active_success(set_ajax_results):
+    """Normal connection / disconnection."""
+    set_ajax_results(0)
+    async with AjaxSession.async_create("active.cluster.node", "super", "sp-admin") as session:
+        pass
+
+@pytest.mark.asyncio
+async def test_connect_standby_error(set_ajax_results):
+    """Normal connection / disconnection."""
+    set_ajax_results(0)
+    with pytest.raises(ConnectionError):
+        async with AjaxSession.async_create("standby.cluster.node", "super", "sp-admin") as session:
+            pass
 
 @pytest.mark.asyncio
 async def test_connect_authentication_error():

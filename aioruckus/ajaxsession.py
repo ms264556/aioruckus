@@ -5,6 +5,7 @@ from yarl import URL
 import asyncio
 import ssl
 import aiohttp
+import xml.etree.ElementTree as ET
 import xmltodict
 
 from .abcsession import AbcSession, ConfigItem
@@ -61,8 +62,6 @@ class AjaxSession(AbcSession):
     def api(self) -> RuckusAjaxApi:
         """Return a RuckusApi instance. Raises RuntimeError if not logged in."""
         if not self._api:
-            if self.base_url is None:
-                raise RuntimeError(ERROR_NO_SESSION)
             from .ruckusajaxapi import RuckusAjaxApi
             self._api = RuckusAjaxApi(self)
         return self._api
@@ -91,10 +90,12 @@ class AjaxSession(AbcSession):
         if target_url.port == 8443:
             return await self.sz_login()
         
+        login_request_timeout = aiohttp.ClientTimeout(total=3)
+
         # locate the admin pages: /admin/* for Unleashed and ZD 9.x, /admin10/* for ZD 10.x
         try:
             async with self.websession.head(
-                target_url, timeout=aiohttp.ClientTimeout(total=3), allow_redirects=False
+                target_url, timeout=login_request_timeout, allow_redirects=False
             ) as head:
                 if 400 <= head.status < 500:
                     # Request Refused - maybe one-interface SmartZone
@@ -105,7 +106,7 @@ class AjaxSession(AbcSession):
             # Handle Unleashed Member -> Master redirect, which might be a two-step redirect
             if login_candidate_url.path == '/':
                 async with self.websession.head(
-                    login_candidate_url, timeout=aiohttp.ClientTimeout(total=3), allow_redirects=False
+                    login_candidate_url, timeout=login_request_timeout, allow_redirects=False
                 ) as head:
                     self.__login_url = head.url.join(URL(head.headers["Location"]))
             else:
@@ -138,7 +139,7 @@ class AjaxSession(AbcSession):
                 "password": self.password,
                 "ok": "Log In",
             },
-            timeout=aiohttp.ClientTimeout(total=3),
+            timeout=login_request_timeout,
             allow_redirects=False,
         ) as head:
             if head.status == 200:
@@ -154,7 +155,7 @@ class AjaxSession(AbcSession):
                     raise ConnectionError("Login failed: could not determine base URL for CSRF token.")
                 async with self.websession.get(
                     self.base_url / "_csrfTokenVar.jsp",
-                    timeout=aiohttp.ClientTimeout(total=3),
+                    timeout=login_request_timeout,
                     allow_redirects=False,
                 ) as response:
                     if response.status == 200:
@@ -169,6 +170,30 @@ class AjaxSession(AbcSession):
                         # token page is a redirect, maybe temporary Unleashed Rebuilding placeholder
                         # page is showing
                         raise ConnectionRefusedError(ERROR_CONNECT_TEMPORARY)
+                    
+            # fail if we're connected to standby controller
+            async with self.websession.post(
+                self.base_url / "_cmdstat.jsp",
+                data='<ajax-request action="getstat" comp="cluster"/>',
+                headers={"Content-Type": "text/xml"},
+                timeout=login_request_timeout,
+                allow_redirects=False,
+            ) as response:
+                if response.status == 200:
+                    response_text = await response.text()
+                    if response_text and response_text != "\n":
+                        try:
+                            root = ET.fromstring(response_text)
+                            standby_xmsg = root.find(".//xmsg[@to-state='1']")
+                        except ET.ParseError:
+                            standby_xmsg = None
+                        if standby_xmsg is not None:
+                            peer_ip = standby_xmsg.get("peer-ip")
+                            mgmt_ip = standby_xmsg.get("mgmt-ip")
+                            if mgmt_ip:
+                                raise ConnectionError(f"Connected to standby node - please connect to Management Interface at {mgmt_ip}")
+                            else:
+                                raise ConnectionError(f"Connected to standby node - please connect to Peer Interface at {peer_ip}")
         return self
 
     async def sz_login(self) -> AjaxSession:
@@ -236,19 +261,7 @@ class AjaxSession(AbcSession):
     @staticmethod
     def async_create(host: str, username: str, password: str) -> AjaxSession:
         """Create a default ClientSession & use this to create an AjaxSession instance"""
-        # create SSLContext which ignores certificate errors and allows old ciphers
-        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-        ssl_context.set_ciphers("DEFAULT")
-        # create ClientSession using our SSLContext, allowing cookies on IP address URLs,
-        # with a short keepalive for compatibility with old Unleashed versions
-        websession = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=10),
-            cookie_jar=aiohttp.CookieJar(unsafe=True),
-            connector=aiohttp.TCPConnector(keepalive_timeout=5, ssl_context=ssl_context),
-        )
-        return AjaxSession(websession, host, username, password, auto_cleanup_websession=True)
+        return AjaxSession(create_legacy_client_session(), host, username, password, auto_cleanup_websession=True)
 
     async def request_file(self, file_url: str | URL, timeout: aiohttp.ClientTimeout | int | None = None, retrying: bool = False) -> bytes:
         """File Download"""

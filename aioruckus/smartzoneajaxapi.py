@@ -24,7 +24,12 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         super().__init__(session)
 
     async def login(self) -> SmartZoneAjaxApi:
-        self.__session = await SmartZoneSession(self.session.host, self.session.username, self.session.password).login()
+        self.__session = await SmartZoneSession(
+            self.session.host,
+            self.session.username,
+            self.session.password,
+            self.session.websession
+        ).login()
         return self
 
     async def close(self) -> None:
