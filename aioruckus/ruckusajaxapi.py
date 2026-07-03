@@ -158,11 +158,17 @@ class RuckusAjaxApi(RuckusConfigurationApi):
     async def do_block_client(self, mac: str) -> None:
         """Block a client"""
         mac = normalize_mac_lower(mac)
-        await self.cmdstat(
+        result = await self.cmdstat(
             f"<ajax-request action='docmd' xcmd='block' checkAbility='10' comp='stamgr'>"
             f"<xcmd check-ability='10' tag='client' acl-id='1' client='{mac}' cmd='block'>"
             f"<client client='{mac}' acl-id='1' hostname=''></client></xcmd></ajax-request>"
         )
+        if "xmsg" in result and result["xmsg"].get("type") == "-1":
+            await self.cmdstat(
+                f"<ajax-request action='docmd' xcmd='block-client' comp='stamgr'>"
+                f"<xcmd cmd='block-client'><client mac='{mac}'></client></xcmd>"
+                f"</ajax-request>"
+            )
 
     async def do_unblock_client(self, mac: str) -> None:
         """Unblock a client"""

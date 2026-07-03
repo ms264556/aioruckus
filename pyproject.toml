@@ -1,8 +1,43 @@
 [build-system]
-requires = ["setuptools>=80.9", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[project]
+name = "aioruckus"
+version = "0.43"
+description = "Python API to interact with Ruckus Unleashed and ZoneDirector devices"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "0BSD"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Tony Rielly", email = "aioruckus@ms264556.net" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent"
+]
+dependencies = [
+    "aiohttp>=3.14.1",
+    "cryptography>=49.0.0",
+    "xmltodict>=1.0.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=1.4.0",
+    "pylint-pytest>=1.1.7",
+    "pylint>=4.0.6",
+]
 
 [tool.pytest.ini_options]
 testpaths = [
     "tests",
 ]
+
+[tool.pylint.main]
+load-plugins = ["pylint_pytest"]
+
+[tool.uv.build-backend]
+module-root = ""
