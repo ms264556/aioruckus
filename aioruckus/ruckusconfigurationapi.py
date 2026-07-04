@@ -50,7 +50,7 @@ class RuckusConfigurationApi(ABC):
                 else:
                     ap_group["wlansvc"] = [
                         deepcopy(wlan_map[wlan["id"]])
-                        for wlan in ap_group["wlangroup"]["wlansvc"]
+                        for wlan in ap_group["wlangroup"]["wlansvc"] if wlan["id"] in wlan_map
                     ]
                 del ap_group["wlangroup"]
             # replace ZoneDirector wlangroup links with wlangroup objects
@@ -131,7 +131,7 @@ class RuckusConfigurationApi(ABC):
             if "wlansvc" in wlan_group:
                 wlan_group["wlansvc"] = [
                     deepcopy(wlan_map[wlansvc["id"]])
-                    for wlansvc in wlan_group["wlansvc"]
+                    for wlansvc in wlan_group["wlansvc"] if wlansvc["id"] in wlan_map
                 ]
         return wlan_groups
 
