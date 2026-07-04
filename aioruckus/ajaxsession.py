@@ -252,7 +252,7 @@ class AjaxSession(AbcSession):
                     raise AuthenticationError(ERROR_POST_REDIRECTED)
                 await self.login()  # try logging in again, then retry post
                 return await self.request(cmd, data, timeout, retrying=True)
-            result_text = await response.text()
+            result_text = await response.text(errors="replace")
             if not result_text or result_text == "\n":
                 # if the ajax request payload wasn't understood then we get an empty page back
                 raise RuntimeError(ERROR_POST_NORESULT)
