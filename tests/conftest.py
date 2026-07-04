@@ -1,59 +1,66 @@
-from aiohttp.client_exceptions import ClientConnectorError
-from aioresponses import aioresponses, CallbackResult
-from asyncio.exceptions import TimeoutError
-import pytest
 import re
+from asyncio.exceptions import TimeoutError
+from typing import Any, cast
+
+import pytest
+from aiohttp.client_exceptions import ClientConnectorError
 
 from aioruckus.ajaxsession import AjaxSession
 
+try:
+    from .mock_aiohttp import AioResponsesMock, CallbackResult
+except ImportError:
+    from mock_aiohttp import AioResponsesMock, CallbackResult
+
+
 @pytest.fixture(autouse=True)
 def aiohttp_context():
-    with aioresponses() as m:
+    with AioResponsesMock() as m:
         # Unleashed and ZoneDirector
-        m.head(
+        m.get(
             re.compile(r"^https?://192\.168\.0\.2/?$"),
             status=302,
             headers={"Location": "https://my.controller/admin/login.jsp"},
             repeat=True,
         )
-        m.head(
+        m.get(
             re.compile(r"^https?://192\.168\.0\.1/?$"),
             exception=TimeoutError(),
             repeat=True,
         )
-        m.head(
+        m.get(
             re.compile(r"^https?://127\.0\.0\.1/?$"),
-            exception=ClientConnectorError(None, OSError()),
+            exception=ClientConnectorError(cast(Any, None), OSError()),
             repeat=True,
         )
-        m.head(
+        m.get(
             re.compile(r"^https?://active\.cluster\.node/?$"),
             status=302,
             headers={"Location": "https://active.cluster.node/admin10/login.jsp"},
             repeat=True,
         )
-        m.head(
+        m.get(
             re.compile(r"^https?://standby\.cluster\.node/?$"),
             status=302,
             headers={"Location": "https://standby.cluster.node/admin10/login.jsp"},
             repeat=True,
         )
-        m.head(
-            re.compile(
-                r"https://[^/]+/admin(?:10)?/login\.jsp\?ok=Log\+In&password=sp-admin&username=super",
-            ),
-            status=302,
-            headers={"HTTP_X_CSRF_TOKEN": "dummy_token"},
-            repeat=True,
-        )
-        m.head(
+        m.get(
             re.compile(
                 r"^https?://[^/]+/admin(?:10)?/login\.jsp\?ok=.*&password=.*&username=.*"
             ),
             status=200,
             repeat=True,
         )
-        m.head(
+        m.get(
+            re.compile(
+                r"https://[^/]+/admin(?:10)?/login\.jsp\?ok=Log(?:\+|%20)In&password=sp-admin&username=super",
+            ),
+            status=302,
+            headers={"HTTP_X_CSRF_TOKEN": "dummy_token"},
+            repeat=True,
+        )
+        m.get(
             re.compile(
                 r"https://[^/]+/admin(?:10)?/login\.jsp\?logout=1"
             ),
@@ -61,18 +68,18 @@ def aiohttp_context():
             repeat=True
         )
         m.post(
-            re.compile(r"^https://api\.(?:eu\.|asia\.)ruckus\.cloud/oauth2/token/5dd1000334cc2a01fcf28a740a6c95cf$"),
-            payload={'access_token': 'dummy_bearer_token', 'token_type': 'Bearer', 'expires_in': 7199},
-            repeat=True,
-        )
-        m.post(
             re.compile(r"^https://api\.(?:eu\.|asia\.)ruckus\.cloud/oauth2/token/[a-fA-F0-9]{32}$"),
             status=302,
             repeat=True,
         )
         m.post(
+            re.compile(r"^https://api\.(?:eu\.|asia\.)ruckus\.cloud/oauth2/token/5dd1000334cc2a01fcf28a740a6c95cf$"),
+            payload={'access_token': 'dummy_bearer_token', 'token_type': 'Bearer', 'expires_in': 7199},
+            repeat=True,
+        )
+        m.post(
             re.compile(r"^https://api\.elsewhere\.ruckus\.cloud/oauth2/token/[a-fA-F0-9]{32}$"),
-            exception=ClientConnectorError(None, OSError()),
+            exception=ClientConnectorError(cast(Any, None), OSError()),
             repeat=True,
         )
         m.get(
@@ -128,7 +135,7 @@ def unleashed_callback_factory(child_count):
             ]
             content = f"<ap-list>{''.join(_aps[:child_count])}</ap-list>"
         elif data == "<ajax-request action='getstat' comp='system'><sysinfo/></ajax-request>":
-            content = f'<response><sysinfo version="200.14.6.1 build 203" serial="212339000715" /></response>'
+            content = '<response><sysinfo version="200.14.6.1 build 203" serial="212339000715" /></response>'
         elif data.startswith("<ajax-request action='getstat' comp='system'>"):
             _sysinfos = [
                 '<sysinfo version="200.14.6.1 build 203" serial="212339000715" />',
@@ -144,9 +151,9 @@ def unleashed_callback_factory(child_count):
             content = f"<apstamgr-stat>{''.join(_clients[:child_count])}</apstamgr-stat>"
         elif data == '<ajax-request action="getstat" comp="cluster"/>' and "cluster" in url.host:
             if "standby" in url.host:
-                content = f'<response><xmsg to-state="1" peer-state="0" ip="192.168.0.5" peer-ip="192.168.0.6" mgmt-ip="192.168.0.7" /></response>'
+                content = '<response><xmsg to-state="1" peer-state="0" ip="192.168.0.5" peer-ip="192.168.0.6" mgmt-ip="192.168.0.7" /></response>'
             else:
-                content = f'<response><xmsg to-state="0" peer-state="1" ip="192.168.0.5" peer-ip="192.168.0.6" mgmt-ip="192.168.0.7" /></response>'
+                content = '<response><xmsg to-state="0" peer-state="1" ip="192.168.0.5" peer-ip="192.168.0.6" mgmt-ip="192.168.0.7" /></response>'
         elif data.startswith("<ajax-request action='getconf'") and data.endswith(" comp='mesh-list'/>"):
             content = '<mesh-list><mesh id="1" name="Mesh-Backbone" x-psk="" psk="" /></mesh-list>'
         else:

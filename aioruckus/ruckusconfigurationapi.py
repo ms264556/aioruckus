@@ -117,7 +117,7 @@ class RuckusConfigurationApi(ABC):
                         wlan["policy6"] = deepcopy(policy6_map[wlan["policy6-id"]])
                     del wlan["policy6-id"]
                 avp_policy = wlan.get("avp-policy")
-                if avp_policy and self._parse_conf_bool(avp_policy.get("avp-enabled")) is True:
+                if avp_policy and arcpolicy_map and self._parse_conf_bool(avp_policy.get("avp-enabled")) is True:
                     wlan["avp-policy"] = deepcopy(arcpolicy_map[avp_policy["avpdeny-id"]])
                 else:
                     wlan.pop("avp-policy", None)

@@ -94,21 +94,21 @@ class AjaxSession(AbcSession):
 
         # locate the admin pages: /admin/* for Unleashed and ZD 9.x, /admin10/* for ZD 10.x
         try:
-            async with self.websession.head(
+            async with self.websession.get(
                 target_url, timeout=login_request_timeout, allow_redirects=False
-            ) as head:
-                if 400 <= head.status < 500:
+            ) as get:
+                if 400 <= get.status < 500:
                     # Request Refused - maybe one-interface SmartZone
                     return await self.sz_login()
                 # Resolve the redirect URL against the request URL to handle relative paths
-                login_candidate_url = head.url.join(URL(head.headers["Location"]))
+                login_candidate_url = get.url.join(URL(get.headers["Location"]))
 
             # Handle Unleashed Member -> Master redirect, which might be a two-step redirect
             if login_candidate_url.path == '/':
-                async with self.websession.head(
+                async with self.websession.get(
                     login_candidate_url, timeout=login_request_timeout, allow_redirects=False
-                ) as head:
-                    self.__login_url = head.url.join(URL(head.headers["Location"]))
+                ) as get:
+                    self.__login_url = get.url.join(URL(get.headers["Location"]))
             else:
                 self.__login_url = login_candidate_url
 
@@ -132,7 +132,7 @@ class AjaxSession(AbcSession):
             raise ConnectionError(ERROR_CONNECT_TIMEOUT) from terr
 
         # login and collect CSRF token
-        async with self.websession.head(
+        async with self.websession.get(
             self.__login_url,
             params={
                 "username": self.username,
@@ -141,13 +141,13 @@ class AjaxSession(AbcSession):
             },
             timeout=login_request_timeout,
             allow_redirects=False,
-        ) as head:
-            if head.status == 200:
+        ) as get:
+            if get.status == 200:
                 # if username/password were valid we'd be redirected to the main admin page
                 raise AuthenticationError(ERROR_LOGIN_INCORRECT)
-            if "HTTP_X_CSRF_TOKEN" in head.headers:
+            if "HTTP_X_CSRF_TOKEN" in get.headers:
                 # modern ZD and Unleashed return CSRF token in header
-                self.websession.headers["X-CSRF-Token"] = head.headers["HTTP_X_CSRF_TOKEN"]
+                self.websession.headers["X-CSRF-Token"] = get.headers["HTTP_X_CSRF_TOKEN"]
             else:
                 # older ZD and Unleashed require you to scrape the CSRF token from a page's
                 # javascript
@@ -211,7 +211,7 @@ class AjaxSession(AbcSession):
         if self.websession:
             try:
                 if self.__login_url:
-                    async with self.websession.head(
+                    async with self.websession.get(
                         self.__login_url,
                         params={"logout": "1"},
                         timeout=aiohttp.ClientTimeout(total=3),
@@ -252,7 +252,7 @@ class AjaxSession(AbcSession):
                     raise AuthenticationError(ERROR_POST_REDIRECTED)
                 await self.login()  # try logging in again, then retry post
                 return await self.request(cmd, data, timeout, retrying=True)
-            result_text = await response.text()
+            result_text = await response.text(errors="replace")
             if not result_text or result_text == "\n":
                 # if the ajax request payload wasn't understood then we get an empty page back
                 raise RuntimeError(ERROR_POST_NORESULT)
