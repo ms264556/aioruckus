@@ -125,7 +125,7 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         """Return a list of active clients"""
         clients = await self.__session.query("query/client")
         return cast(list[Client], [
-            {**client, "mac": client["clientMac"]}
+            {**client, "mac": client["clientMac"], "ip": client["ipAddress"], "ap": client["apMac"]}
             for client in clients
         ])
 
@@ -133,7 +133,7 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         """Return a list of inactive clients"""
         clients = await self.__session.query("query/historicalclient")
         return cast(list[Client], [
-            {**client, "mac": client["clientMac"]}
+            {**client, "mac": client["clientMac"], "ip": client["ipAddress"], "ap": client["apMac"]}
             for client in clients
         ])
 
