@@ -1,16 +1,31 @@
+"""RuckusOneSession class."""
+
 from __future__ import annotations
 import asyncio
 from math import ceil
-from typing import Any
-
+import sys
 import aiohttp
 from yarl import URL
-
-from .const import ERROR_CONNECT_EOF, ERROR_CONNECT_TIMEOUT, ERROR_LOGIN_INCORRECT, ERROR_NO_SESSION, ERROR_POST_BADRESULT, ERROR_POST_REDIRECTED
+from .const import (
+    ERROR_CONNECT_EOF,
+    ERROR_CONNECT_TIMEOUT,
+    ERROR_LOGIN_INCORRECT,
+    ERROR_NO_SESSION,
+    ERROR_POST_BADRESULT,
+    ERROR_POST_REDIRECTED,
+)
 from .exceptions import AuthenticationError, AuthorizationError, BusinessRuleError
-from .utility import *
+from .utility import get_host_url, create_legacy_client_session, cast_timeout
+
+if sys.version_info >= (3, 11):
+    from typing import Any
+else:
+    from typing_extensions import Any
+
 
 class RuckusOneSession:
+    """Manage sessions and make API requests to Ruckus One."""
+
     host: str
     username: str
     password: str
@@ -24,7 +39,7 @@ class RuckusOneSession:
         host: str,
         username: str,
         password: str,
-        websession: aiohttp.ClientSession | None = None
+        websession: aiohttp.ClientSession | None = None,
     ) -> None:
         self.host = host
         self.username = username
@@ -40,7 +55,7 @@ class RuckusOneSession:
         await self.close()
 
     async def login(self) -> RuckusOneSession:
-        """Create Ruckus One session."""
+        """Authenticate with Ruckus One and create a session."""
         try:
             parsed_url = get_host_url(self.host)
             assert parsed_url.host is not None
@@ -50,15 +65,21 @@ class RuckusOneSession:
                 api_netloc = "api.eu.ruckus.cloud"
             elif parsed_url.host.endswith("asia.ruckus.cloud"):
                 api_netloc = "api.asia.ruckus.cloud"
-            self.__base_url = URL.build(scheme=parsed_url.scheme or "https", host=api_netloc)
-            self.__tenant_id = parsed_url.path.strip('/')[0:32]
+            self.__base_url = URL.build(
+                scheme=parsed_url.scheme or "https", host=api_netloc
+            )
+            self.__tenant_id = parsed_url.path.strip("/")[0:32]
 
             async with self.__client.post(
                 self.__base_url / "oauth2/token" / self.__tenant_id,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
-                data={"grant_type": "client_credentials", "client_id": self.username, "client_secret": self.password},
+                data={
+                    "grant_type": "client_credentials",
+                    "client_id": self.username,
+                    "client_secret": self.password,
+                },
                 timeout=aiohttp.ClientTimeout(total=20),
-                allow_redirects=False
+                allow_redirects=False,
             ) as oauth2:
                 if oauth2.status != 200:
                     raise AuthenticationError(ERROR_LOGIN_INCORRECT)
@@ -77,46 +98,104 @@ class RuckusOneSession:
             raise ConnectionError(ERROR_CONNECT_TIMEOUT) from terr
 
     async def close(self) -> None:
-        """Logout of Ruckus One and close websession"""
+        """Logout and close websession"""
         if self.__auto_cleanup_websession:
             await self.__client.close()
 
-    async def get(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
+    async def get(
+        self,
+        cmd: str,
+        params: dict | None = None,
+        *,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+    ) -> Any:
+        """Send a GET request to the Ruckus One API endpoint."""
         return await self._request("get", cmd, uri_params=params, timeout=timeout)
 
-    async def post(self, cmd: str, json: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
+    async def post(
+        self,
+        cmd: str,
+        json: dict | None = None,
+        *,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+    ) -> Any:
+        """Send a POST request to the Ruckus One API endpoint."""
         return await self._request("post", cmd, json=json, timeout=timeout)
 
-    async def put(self, cmd: str, json: dict | None = None,timeout: aiohttp.ClientTimeout | int | None = None, fire_and_forget: bool = False) -> Any:
-        return await self._request("put", cmd, json=json, timeout=timeout, fire_and_forget=fire_and_forget)
+    async def put(
+        self,
+        cmd: str,
+        json: dict | None = None,
+        *,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+        fire_and_forget: bool = False,
+    ) -> Any:
+        """Send a PUT request to the Ruckus One API endpoint."""
+        return await self._request(
+            "put", cmd, json=json, timeout=timeout, fire_and_forget=fire_and_forget
+        )
 
-    async def patch(self, cmd: str, json: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None, fire_and_forget: bool = False) -> Any:
-        return await self._request("patch", cmd, json=json, timeout=timeout, fire_and_forget=fire_and_forget)
+    async def patch(
+        self,
+        cmd: str,
+        json: dict | None = None,
+        *,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+        fire_and_forget: bool = False,
+    ) -> Any:
+        """Send a PATCH request to the Ruckus One API endpoint."""
+        return await self._request(
+            "patch", cmd, json=json, timeout=timeout, fire_and_forget=fire_and_forget
+        )
 
-    async def delete(self, cmd: str, json: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None, fire_and_forget: bool = False) -> Any:
-        return await self._request("delete", cmd, json=json, timeout=timeout, fire_and_forget=fire_and_forget)
+    async def delete(
+        self,
+        cmd: str,
+        json: dict | None = None,
+        *,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+        fire_and_forget: bool = False,
+    ) -> Any:
+        """Send a DELETE request to the Ruckus One API endpoint."""
+        return await self._request(
+            "delete", cmd, json=json, timeout=timeout, fire_and_forget=fire_and_forget
+        )
 
-    async def query(self, cmd: str, params: dict | None = None, page_size: int = 5, pages_limit: int = 100, timeout: aiohttp.ClientTimeout | int | None = None) -> list:
+    async def query(
+        self,
+        cmd: str,
+        params: dict | None = None,
+        *,
+        page_size: int = 100,
+        pages_limit: int = 100,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+    ) -> list:
+        """Return a list of results from a paged Ruckus One API query."""
         query = params or {}
         timeout = cast_timeout(timeout)
 
-        first_page = await self.post(cmd, {**query, "page": 1, "pageSize": page_size}, timeout)
+        first_page = await self.post(
+            cmd, {**query, "page": 1, "pageSize": page_size}, timeout=timeout
+        )
         results: list[Any] = first_page.get("data", [])
         if not results:
             return results
         page_count = min(pages_limit, ceil(first_page["totalCount"] / page_size))
         if page_count < 2:
             return results
-        for page in await asyncio.gather(*[
-            # _request() rather than post(), so we can turn off retries
-            self._request("post",
-                cmd,
-                json={**query, "page": page_num, "pageSize": page_size},
-                timeout=timeout,
-                retrying=True,
-            )
-            for page_num in range(2, page_count + 1)
-        ]):
+        for page in await asyncio.gather(
+            *[
+                # _request() rather than post(), so we can turn off retries
+                self._request(
+                    "post",
+                    cmd,
+                    json={**query, "page": page_num, "pageSize": page_size},
+                    timeout=timeout,
+                    retrying=True,
+                )
+                for page_num in range(2, page_count + 1)
+            ]
+        ):
             results.extend(page["data"])
         return results
 
@@ -124,6 +203,7 @@ class RuckusOneSession:
         self,
         method: str,
         cmd: str,
+        *,
         uri_params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
         timeout: aiohttp.ClientTimeout | int | None = None,
@@ -150,13 +230,27 @@ class RuckusOneSession:
                     # Already tried logging in again - give up
                     raise AuthorizationError(ERROR_POST_REDIRECTED)
                 await self.login()
-                return await self._request(method, cmd, uri_params, json, timeout, fire_and_forget, retrying=True)
+                return await self._request(
+                    method,
+                    cmd,
+                    uri_params=uri_params,
+                    json=json,
+                    timeout=timeout,
+                    fire_and_forget=fire_and_forget,
+                    retrying=True,
+                )
             return await self._parse_response(response, fire_and_forget)
-    
-    async def _parse_response(self, response: aiohttp.ClientResponse, fire_and_forget: bool = False) -> Any:
+
+    async def _parse_response(
+        self, response: aiohttp.ClientResponse, fire_and_forget: bool = False
+    ) -> Any:
         assert self.__base_url and self.__bearer_token
         if response.status == 200:
-            return await response.json() if response.content_type.endswith("json") else None
+            return (
+                await response.json()
+                if response.content_type.endswith("json")
+                else None
+            )
         elif response.status == 202 and not fire_and_forget:
             request_id = (await response.json())["requestId"]
             for i in range(4):
@@ -165,14 +259,16 @@ class RuckusOneSession:
                     self.__base_url / f"activities/{request_id}",
                     headers={"Authorization": self.__bearer_token},
                     timeout=cast_timeout(3),
-                    allow_redirects=False
+                    allow_redirects=False,
                 ) as activity_update:
                     activity_json = await activity_update.json()
                     activity_status = activity_json.get("status")
                     if activity_status == "SUCCESS":
                         return
                     if activity_status == "FAIL":
-                        raise RuntimeError(activity_json.get("error", ERROR_POST_BADRESULT))
+                        raise RuntimeError(
+                            activity_json.get("error", ERROR_POST_BADRESULT)
+                        )
             raise RuntimeError(ERROR_CONNECT_TIMEOUT)
         elif response.status in (201, 202, 204):
             return None
@@ -180,11 +276,14 @@ class RuckusOneSession:
             raise AuthorizationError(ERROR_POST_REDIRECTED)
         elif response.status == 400:
             response_json = await response.json()
-            raise BusinessRuleError(f"{response_json["error"]}: {response_json["path"]}")
+            raise BusinessRuleError(
+                f"{response_json['error']}: {response_json['path']}"
+            )
         try:
             response_json = await response.json()
             response_error = response_json["errors"][0]
-        except:
-            raise RuntimeError(response.status)
-        raise BusinessRuleError(f"{response_error["message"]}: {response_error["reason"]}")
-
+        except Exception as err:
+            raise RuntimeError(response.status) from err
+        raise BusinessRuleError(
+            f"{response_error['message']}: {response_error['reason']}"
+        )

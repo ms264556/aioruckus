@@ -1,14 +1,23 @@
 """Ruckus Session"""
+
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from enum import Enum
-from typing import TYPE_CHECKING
+import sys
+
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+    from typing import TYPE_CHECKING
+else:
+    from backports.strenum import StrEnum
+    from typing_extensions import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .ruckusconfigurationapi import RuckusConfigurationApi
 
-class ConfigItem(Enum):
+
+class ConfigItem(StrEnum):
     """Ruckus configuration keys"""
+
     WLANSVC_LIST = "wlansvc-list"
     WLANSVC_STANDARD_TEMPLATE = "wlansvc-standard-template"
     WLANGROUP_LIST = "wlangroup-list"
@@ -31,11 +40,18 @@ class ConfigItem(Enum):
     POLICY6_LIST = "policy6-list"
     SYSTEM = "system"
 
+
+class StatComp(StrEnum):
+    """Ruckus statistics keys"""
+
+    SYSTEM = "system"
+    STAMGR = "stamgr"
+
+
 class AbcSession(ABC):
     """Abstract Ajax Connection to Ruckus Unleashed or ZoneDirector"""
-    def __init__(
-        self
-    ) -> None:
+
+    def __init__(self) -> None:
         self._api = None
 
     @property
@@ -45,6 +61,6 @@ class AbcSession(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    async def get_conf_str(self, item: ConfigItem, timeout: int | None = None) -> str:
+    async def getconf(self, item: ConfigItem, timeout: int | None = None) -> str:
         """Return the relevant config xml, given a configuration key"""
         raise NotImplementedError(item)

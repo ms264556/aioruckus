@@ -1,13 +1,19 @@
 """Type Hints for SmartZone JSON Payloads"""
 
-from typing import Literal, Required, TypedDict
-
+import sys
 from .ajaxtyping import L2Rule
+
+if sys.version_info >= (3, 11):
+    from typing import Literal, Required, TypedDict
+else:
+    from typing_extensions import Literal, Required, TypedDict
+
 
 class PermissionResourceItemDict(TypedDict, total=False):
     resource: str
     access: Literal["NA", "READ", "MODIFY", "FULL_ACCESS"]
     display: str
+
 
 class PermissionCategoryDict(TypedDict, total=False):
     resource: Required[str]
@@ -17,9 +23,11 @@ class PermissionCategoryDict(TypedDict, total=False):
     itemsDescription: list[str]
     ids: list[str]
 
+
 class PermissionExtraDict(TypedDict, total=False):
     isSuperAdmin: bool
     isSuperAdminOfDomain: bool
+
 
 class PermissionCategoriesDict(TypedDict, total=False):
     totalCount: int
@@ -27,6 +35,7 @@ class PermissionCategoriesDict(TypedDict, total=False):
     firstIndex: int
     list: Required[list[PermissionCategoryDict]]
     extra: PermissionExtraDict
+
 
 class SessionDict(TypedDict, total=False):
     cpId: Required[str]
@@ -39,12 +48,14 @@ class SessionDict(TypedDict, total=False):
     cpName: str
     cpSerialNumber: str
 
+
 class BlockClientZoneDict(TypedDict, total=False):
     id: Required[str]
     zoneId: Required[str]
     description: str
     modifiedDateTime: int
     modifierUsername: str
+
 
 class BlockClientDict(L2Rule, total=False):
     zones: Required[list[BlockClientZoneDict]]

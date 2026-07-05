@@ -1,5 +1,10 @@
 """Constants used in aioruckus."""
 from enum import Enum
+import sys
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:
+    from backports.strenum import StrEnum
 
 # Error strings
 ERROR_CONNECT_NOPARSE = "Could not parse the hostname"
@@ -9,7 +14,8 @@ ERROR_CONNECT_TEMPORARY = "Temporarily unable to handle the request"
 ERROR_POST_REDIRECTED = "Insufficient permission to run this command"
 ERROR_POST_BADRESULT = "Unable to parse the response"
 ERROR_POST_NORESULT = "The command was not understood"
-ERROR_NO_SESSION = "Session is not logged in. Please call login() or use an async context manager."
+ERROR_NO_SESSION = "Session is not logged in. Please call login() or use an async context manager"
+ERROR_NOT_ZD = "The target device is not Ruckus Unleashed/ZoneDirector"
 ERROR_LOGIN_INCORRECT = "Login incorrect"
 ERROR_INVALID_AP = "Invalid AP"
 ERROR_ALLOCATED_AP = "AP already in another AP Group"
@@ -39,7 +45,7 @@ class SystemStat(Enum):
     TIME = ["time"]
     UNLEASHED_NETWORK = ["unleashed-network"]
 
-class WlanEncryption(Enum):
+class WlanEncryption(StrEnum):
     """WLAN encryption types"""
     NONE = "none"
     OWE = "owe"
@@ -47,7 +53,7 @@ class WlanEncryption(Enum):
     WPA23_MIXED = "wpa23-mixed"
     WPA3 = "wpa3"
 
-class PatchNewAttributeMode(Enum):
+class PatchNewAttributeMode(StrEnum):
     """Treatment of patch attributes which are missing from existing XML"""
     ERROR = "error"
     IGNORE = "ignore"

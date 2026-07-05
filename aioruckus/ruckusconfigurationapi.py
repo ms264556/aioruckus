@@ -1,50 +1,80 @@
 """Ruckus ZoneDirector or Unleashed Configuration API"""
+
 from __future__ import annotations
 from abc import ABC
 import asyncio
 from copy import deepcopy
-from typing import Any
+import sys
+
+from .unleashedtojson import parse_ajax_response
 
 from .abcsession import AbcSession, ConfigItem
-from .ajaxtyping import Ap, ApGroup, ArcApplication, ArcPolicy, ArcPort, DevicePolicy, Dpsk, Ip4Policy, Ip6Policy, L2Policy, L2Rule, Mesh, PrecedencePolicy, Role, UrlBlockCategory, UrlFilter, Wlan, WlanGroup
+from .ajaxtyping import (
+    Ap,
+    ApGroup,
+    ArcApplication,
+    ArcPolicy,
+    ArcPort,
+    DevicePolicy,
+    Dpsk,
+    Ip4Policy,
+    Ip6Policy,
+    L2Policy,
+    L2Rule,
+    Mesh,
+    PrecedencePolicy,
+    Role,
+    UrlBlockCategory,
+    UrlFilter,
+    Wlan,
+    WlanGroup,
+)
 from .const import URL_FILTERING_CATEGORIES, SystemStat
-from .utility import unwrap_xml
+
+if sys.version_info >= (3, 11):
+    from typing import Any
+else:
+    from typing_extensions import Any
+
 
 class RuckusConfigurationApi(ABC):
     """Ruckus ZoneDirector/Unleashed Configuration API"""
+
     def __init__(self, session: AbcSession):
         self.session = session
 
     async def get_aps(self) -> list[Ap]:
         """Return a list of APs"""
-        return await self._get_conf(ConfigItem.AP_LIST, ["ap"])
+        return await self._get_conf(ConfigItem.AP_LIST)
 
     async def get_ap_groups(self) -> list[ApGroup]:
         """Return a list of AP groups"""
-        ap_map = {ap['id']: ap for ap in await self.get_aps()}
-        wlan_map = {wlan['id']: wlan for wlan in await self.get_wlans()}
-        wlang_map = {wlang['id']: wlang for wlang in await self.get_wlan_groups()}
-        ap_groups = await self._get_conf(
-            ConfigItem.APGROUP_LIST, ["apgroup", "radio", "model", "port", "ap", "wlansvc"]
-        )
+        ap_groups = await self._get_conf(ConfigItem.APGROUP_LIST)
+
+
+        ap_map = {ap["id"]: ap for ap in await self.get_aps()}
+        wlan_map = {wlan["id"]: wlan for wlan in await self.get_wlans()}
+        wlang_map = {wlang["id"]: wlang for wlang in await self.get_wlan_groups()}
         for ap_group in ap_groups:
             # replace ap links with ap objects
             if (
-                "members" not in ap_group or ap_group["members"] is None or
-                "ap" not in ap_group["members"] or ap_group["members"]["ap"] is None
+                "members" not in ap_group
+                or ap_group["members"] is None
+                or "ap" not in ap_group["members"]
+                or ap_group["members"]["ap"] is None
             ):
                 ap_group["ap"] = []
             else:
                 ap_group["ap"] = [
-                    deepcopy(ap_map[ap["id"]])
-                    for ap in ap_group["members"]["ap"]
+                    deepcopy(ap_map[ap["id"]]) for ap in ap_group["members"]["ap"]
                 ]
             ap_group.pop("members", None)
             # replace Unleashed wlangroup links with wlangroup objects
             if "wlangroup" in ap_group:
                 if (
-                    ap_group["wlangroup"] is None or "wlansvc" not in ap_group["wlangroup"] or
-                    ap_group["wlangroup"]["wlansvc"] is None
+                    ap_group["wlangroup"] is None
+                    or "wlansvc" not in ap_group["wlangroup"]
+                    or ap_group["wlangroup"]["wlansvc"] is None
                 ):
                     ap_group["wlansvc"] = []
                 else:
@@ -55,50 +85,80 @@ class RuckusConfigurationApi(ABC):
                 del ap_group["wlangroup"]
             # replace ZoneDirector wlangroup links with wlangroup objects
             if (
-                "ap-property" in ap_group and ap_group["ap-property"] is not None and
-                "radio" in ap_group["ap-property"] and ap_group["ap-property"]["radio"] is not None
+                "ap-property" in ap_group
+                and ap_group["ap-property"] is not None
+                and "radio" in ap_group["ap-property"]
+                and ap_group["ap-property"]["radio"] is not None
             ):
                 for radio in ap_group["ap-property"]["radio"]:
                     if "wlangroup-id" in radio:
                         if radio["wlangroup-id"] in wlang_map:
                             # wlangroup-id will be '*' if we're inheriting from System Default
-                            radio["wlangroup"] = deepcopy(wlang_map[radio["wlangroup-id"]])
+                            radio["wlangroup"] = deepcopy(
+                                wlang_map[radio["wlangroup-id"]]
+                            )
                         del radio["wlangroup-id"]
         return ap_groups
 
     async def get_wlans(self) -> list[Wlan]:
         """Return a list of WLANs"""
-        wlans = await self._get_conf(ConfigItem.WLANSVC_LIST, ["wlansvc"])
+        wlans = await self._get_conf(ConfigItem.WLANSVC_LIST)
         if wlans:
-            acl_list, urlfilter_list, precedence_list, devicepolicy_list, arcpolicy_list, policy_list, policy6_list = await asyncio.gather(
+            (
+                acl_list,
+                urlfilter_list,
+                precedence_list,
+                devicepolicy_list,
+                arcpolicy_list,
+                policy_list,
+                policy6_list,
+            ) = await asyncio.gather(
                 self.get_acls(),
                 self.get_urlfiltering_policies(),
                 self.get_precedence_policies(),
                 self.get_device_policies(),
                 self.get_arc_policies(),
                 self.get_ip4_policies(),
-                self.get_ip6_policies()
+                self.get_ip6_policies(),
             )
-            acl_map = {policy['id']: policy for policy in acl_list}
-            urlfilter_map = {policy['id']: policy for policy in urlfilter_list}
-            precedence_map = {policy['id']: policy for policy in precedence_list}
-            devicepolicy_map = {policy['id']: policy for policy in devicepolicy_list}
-            arcpolicy_map = {policy['id']: policy for policy in arcpolicy_list}
-            policy_map = {policy['id']: policy for policy in policy_list}
-            policy6_map = {policy['id']: policy for policy in policy6_list}
+            acl_map = {policy["id"]: policy for policy in acl_list}
+            urlfilter_map = {policy["id"]: policy for policy in urlfilter_list}
+            precedence_map = {policy["id"]: policy for policy in precedence_list}
+            devicepolicy_map = {policy["id"]: policy for policy in devicepolicy_list}
+            arcpolicy_map = {policy["id"]: policy for policy in arcpolicy_list}
+            policy_map = {policy["id"]: policy for policy in policy_list}
+            policy6_map = {policy["id"]: policy for policy in policy6_list}
             for wlan in wlans:
                 urlfiltering_policy = wlan.get("urlfiltering-policy")
-                if urlfiltering_policy and self._parse_conf_bool(urlfiltering_policy.get("urlfiltering-enabled")) is True:
-                    wlan["urlfiltering-policy"] = deepcopy(urlfilter_map[urlfiltering_policy["urlfiltering-id"]])
+                if (
+                    urlfiltering_policy
+                    and self._parse_conf_bool(
+                        urlfiltering_policy.get("urlfiltering-enabled")
+                    )
+                    is True
+                ):
+                    wlan["urlfiltering-policy"] = deepcopy(
+                        urlfilter_map[urlfiltering_policy["urlfiltering-id"]]
+                    )
                 else:
                     wlan.pop("urlfiltering-policy", None)
                 if "precedence-id" in wlan:
-                    if wlan["precedence-id"] and wlan["precedence-id"] in precedence_map:
-                        wlan["precedence"] = deepcopy(precedence_map[wlan["precedence-id"]])
+                    if (
+                        wlan["precedence-id"]
+                        and wlan["precedence-id"] in precedence_map
+                    ):
+                        wlan["precedence"] = deepcopy(
+                            precedence_map[wlan["precedence-id"]]
+                        )
                     del wlan["precedence-id"]
                 if "devicepolicy-id" in wlan:
-                    if wlan["devicepolicy-id"] and wlan["devicepolicy-id"] in devicepolicy_map:
-                        wlan["devicepolicy"] = deepcopy(devicepolicy_map[wlan["devicepolicy-id"]])
+                    if (
+                        wlan["devicepolicy-id"]
+                        and wlan["devicepolicy-id"] in devicepolicy_map
+                    ):
+                        wlan["devicepolicy"] = deepcopy(
+                            devicepolicy_map[wlan["devicepolicy-id"]]
+                        )
                     del wlan["devicepolicy-id"]
                 if "arc-pcy-id" in wlan:
                     if wlan["arc-pcy-id"] and wlan["arc-pcy-id"] in arcpolicy_map:
@@ -125,8 +185,8 @@ class RuckusConfigurationApi(ABC):
 
     async def get_wlan_groups(self) -> list[WlanGroup]:
         """Return a list of WLAN groups"""
-        wlan_map = {wlan['id']: wlan for wlan in await self.get_wlans()}
-        wlan_groups = await self._get_conf(ConfigItem.WLANGROUP_LIST, ["wlangroup", "wlansvc"])
+        wlan_map = {wlan["id"]: wlan for wlan in await self.get_wlans()}
+        wlan_groups = await self._get_conf(ConfigItem.WLANGROUP_LIST)
         for wlan_group in wlan_groups:
             if "wlansvc" in wlan_group:
                 wlan_group["wlansvc"] = [
@@ -138,27 +198,42 @@ class RuckusConfigurationApi(ABC):
     async def get_urlfiltering_policies(self) -> list[UrlFilter]:
         """Return a list of URL Filtering Policies"""
         try:
-            policies = await self._get_conf(ConfigItem.URLFILTERINGPOLICY_LIST, ["urlfilteringpolicy", "rule", "whitelist", "blacklist"])
+            policies = await self._get_conf(ConfigItem.URLFILTERINGPOLICY_LIST)
         except KeyError:
             return []
-        block_map = {category['id']: category for category in await self.get_urlfiltering_blockingcategories()}
+        block_map = {
+            category["id"]: category
+            for category in await self.get_urlfiltering_blockingcategories()
+        }
         for policy in policies:
             if "blockcategories" in policy and policy["blockcategories"]:
                 split_categories = policy["blockcategories"].split(",")
                 policy["blockcategories"] = deepcopy(
-                    [block_map[category] for category in split_categories if category in block_map] +
-                    [{"id": category} for category in split_categories if category not in block_map]
+                    [
+                        block_map[category]
+                        for category in split_categories
+                        if category in block_map
+                    ]
+                    + [
+                        {"id": category}
+                        for category in split_categories
+                        if category not in block_map
+                    ]
                 )
             else:
                 policy.pop("blockcategories", None)
             policy.pop("blockcategories-num", None)
             if "blacklist" in policy and policy["blacklist"]:
-                policy["blacklist"] = [item["domain-name"] for item in policy["blacklist"]]
+                policy["blacklist"] = [
+                    item["domain-name"] for item in policy["blacklist"]
+                ]
             else:
                 policy.pop("blacklist", None)
             policy.pop("blacklist-num", None)
             if "whitelist" in policy and policy["whitelist"]:
-                policy["whitelist"] = [item["domain-name"] for item in policy["whitelist"]]
+                policy["whitelist"] = [
+                    item["domain-name"] for item in policy["whitelist"]
+                ]
             else:
                 policy.pop("whitelist", None)
             policy.pop("whitelist-num", None)
@@ -167,87 +242,114 @@ class RuckusConfigurationApi(ABC):
     async def get_urlfiltering_blockingcategories(self) -> list[UrlBlockCategory]:
         """Return a list of URL Filtering Blocking Categories"""
         try:
-            return await self._get_conf(ConfigItem.URLFILTERINGCATEGORY_LIST, ["urlfiltering-blockcategories", "list"])
+            return await self._get_conf(ConfigItem.URLFILTERINGCATEGORY_LIST)
         except KeyError:
             return [{"id": k, "name": v} for k, v in URL_FILTERING_CATEGORIES.items()]
 
     async def get_ip4_policies(self) -> list[Ip4Policy]:
         """Return a list of IP4 Policies"""
-        return await self._get_conf(ConfigItem.POLICY_LIST, ["policy", "rule"])
+        return await self._get_conf(ConfigItem.POLICY_LIST)
 
     async def get_ip6_policies(self) -> list[Ip6Policy]:
         """Return a list of IP6 Policies"""
-        return await self._get_conf(ConfigItem.POLICY6_LIST, ["policy6", "rule6"])
+        return await self._get_conf(ConfigItem.POLICY6_LIST)
 
     async def get_device_policies(self) -> list[DevicePolicy]:
         """Return a list of Device Policies"""
         try:
-            return await self._get_conf(ConfigItem.DEVICEPOLICY_LIST, ["devicepolicy", "devrule"])
+            return await self._get_conf(ConfigItem.DEVICEPOLICY_LIST)
         except KeyError:
             return []
 
     async def get_precedence_policies(self) -> list[PrecedencePolicy]:
         """Return a list of Precedence Policies"""
         try:
-            policies = await self._get_conf(ConfigItem.PRECEDENCE_LIST, ["precedence", "prerule"])
+            policies = await self._get_conf(ConfigItem.PRECEDENCE_LIST)
             for policy in policies:
                 if "prerule" in policy:
                     for prerule in policy["prerule"]:
                         prerule["order"] = prerule["order"].split(",")
             return policies
         except KeyError:
-            return [{'id': '1', 'name': 'Default', 'EDITABLE': 'true', 'prerule': [{'description': '', 'attr': 'vlan', 'order': ['AAA', 'Device Policy', 'WLAN'], 'EDITABLE': 'false'}, {'description': '', 'attr': 'rate-limit', 'order': ['AAA', 'Device Policy', 'WLAN'], 'EDITABLE': 'false'}]}]
+            return [
+                {
+                    "id": "1",
+                    "name": "Default",
+                    "EDITABLE": "true",
+                    "prerule": [
+                        {
+                            "description": "",
+                            "attr": "vlan",
+                            "order": ["AAA", "Device Policy", "WLAN"],
+                            "EDITABLE": "false",
+                        },
+                        {
+                            "description": "",
+                            "attr": "rate-limit",
+                            "order": ["AAA", "Device Policy", "WLAN"],
+                            "EDITABLE": "false",
+                        },
+                    ],
+                }
+            ]
 
     async def get_arc_policies(self) -> list[ArcPolicy]:
         """Return a list of Application Recognition & Control Policies"""
-        return await self._get_conf(ConfigItem.AVPPOLICY_LIST, ["avppolicy", "avprule"])
+        return await self._get_conf(ConfigItem.AVPPOLICY_LIST)
 
     async def get_arc_applications(self) -> list[ArcApplication]:
         """Return a list of Application Recognition & Control User Defined Applications"""
         try:
-            return await self._get_conf(ConfigItem.AVPAPPLICATION_LIST, ["avpapplication"])
+            return await self._get_conf(ConfigItem.AVPAPPLICATION_LIST)
         except KeyError:
             return []
 
     async def get_arc_ports(self) -> list[ArcPort]:
         """Return a list of Application Recognition & Control User Defined Ports"""
         try:
-            return await self._get_conf(ConfigItem.AVPPORT_LIST, ["avpport"])
+            return await self._get_conf(ConfigItem.AVPPORT_LIST)
         except KeyError:
             return []
 
     async def get_roles(self) -> list[Role]:
         """Return a list of Roles"""
-        wlan_map = {wlan['id']: wlan for wlan in await self.get_wlans()}
+        wlan_map = {wlan["id"]: wlan for wlan in await self.get_wlans()}
         return await self.__get_roles(wlan_map)
 
     async def __get_roles(self, wlan_map: dict[str, Wlan]) -> list[Role]:
         """Return a list of Roles"""
         try:
-            roles = await self._get_conf(ConfigItem.ROLE_LIST, ["role", "allow-wlansvc"])
+            roles = await self._get_conf(ConfigItem.ROLE_LIST)
         except KeyError:
             return []
-        urlfilter_list, devicepolicy_list, arcpolicy_list, policy_list, policy6_list = await asyncio.gather(
-            self.get_urlfiltering_policies(),
-            self.get_device_policies(),
-            self.get_arc_policies(),
-            self.get_ip4_policies(),
-            self.get_ip6_policies()
+        urlfilter_list, devicepolicy_list, arcpolicy_list, policy_list, policy6_list = (
+            await asyncio.gather(
+                self.get_urlfiltering_policies(),
+                self.get_device_policies(),
+                self.get_arc_policies(),
+                self.get_ip4_policies(),
+                self.get_ip6_policies(),
+            )
         )
-        urlfilter_map = {policy['id']: policy for policy in urlfilter_list}
-        devicepolicy_map = {policy['id']: policy for policy in devicepolicy_list}
-        arcpolicy_map = {policy['id']: policy for policy in arcpolicy_list}
-        policy_map = {policy['id']: policy for policy in policy_list}
-        policy6_map = {policy['id']: policy for policy in policy6_list}
+        urlfilter_map = {policy["id"]: policy for policy in urlfilter_list}
+        devicepolicy_map = {policy["id"]: policy for policy in devicepolicy_list}
+        arcpolicy_map = {policy["id"]: policy for policy in arcpolicy_list}
+        policy_map = {policy["id"]: policy for policy in policy_list}
+        policy6_map = {policy["id"]: policy for policy in policy6_list}
         for role in roles:
             if "allow-wlansvc" in role:
                 role["allow-wlansvc"] = [
-                        deepcopy(wlan_map[wlansvc["id"]])
-                        for wlansvc in role["allow-wlansvc"]
-                    ]
+                    deepcopy(wlan_map[wlansvc["id"]])
+                    for wlansvc in role["allow-wlansvc"]
+                ]
             if "url-filtering-id" in role:
-                if role["url-filtering-id"] and role["url-filtering-id"] in urlfilter_map:
-                    role["url-filtering"] = deepcopy(urlfilter_map[role["url-filtering-id"]])
+                if (
+                    role["url-filtering-id"]
+                    and role["url-filtering-id"] in urlfilter_map
+                ):
+                    role["url-filtering"] = deepcopy(
+                        urlfilter_map[role["url-filtering-id"]]
+                    )
                 del role["url-filtering-id"]
             if "dvc-pcy-id" in role:
                 if role["dvc-pcy-id"] and role["dvc-pcy-id"] in devicepolicy_map:
@@ -270,11 +372,11 @@ class RuckusConfigurationApi(ABC):
     async def get_dpsks(self) -> list[Dpsk]:
         """Return a list of DPSKs"""
         try:
-            dpsks = await self._get_conf(ConfigItem.DPSK_LIST, ["dpsk"])
+            dpsks = await self._get_conf(ConfigItem.DPSK_LIST)
         except KeyError:
             return []
-        wlan_map = {wlan['id']: wlan for wlan in await self.get_wlans()}
-        role_map = {role['id']: role for role in await self.__get_roles(wlan_map)}
+        wlan_map = {wlan["id"]: wlan for wlan in await self.get_wlans()}
+        role_map = {role["id"]: role for role in await self.__get_roles(wlan_map)}
         for dpsk in dpsks:
             if "wlansvc-id" in dpsk:
                 dpsk["wlansvc"] = deepcopy(wlan_map[dpsk["wlansvc-id"]])
@@ -288,7 +390,7 @@ class RuckusConfigurationApi(ABC):
     async def get_system_info(self, *sections: SystemStat) -> dict:
         """Return system information"""
         system_info = (await self._get_conf(ConfigItem.SYSTEM))["system"]
-        
+
         section_keys: list[str]
         if sections:
             section_keys = [s for section_list in sections for s in section_list.value]
@@ -301,15 +403,15 @@ class RuckusConfigurationApi(ABC):
     async def get_mesh_info(self) -> Mesh:
         """Return mesh information"""
         return (await self._get_conf(ConfigItem.MESH_LIST))["mesh-list"]["mesh"]
-    
+
     async def get_zerotouch_mesh_ap_serials(self) -> list[dict]:
         """Return a list of Pre-approved AP serial numbers"""
-        return await self._get_conf(ConfigItem.ZTMESHSERIAL_LIST, ["ztmeshSerial"])
+        return await self._get_conf(ConfigItem.ZTMESHSERIAL_LIST)
 
     async def get_acls(self) -> list[L2Policy]:
         """Return a list of ACLs"""
         try:
-            return await self._get_conf(ConfigItem.ACL_LIST, ["accept", "deny", "acl"])
+            return await self._get_conf(ConfigItem.ACL_LIST)
         except KeyError:
             return []
 
@@ -319,12 +421,9 @@ class RuckusConfigurationApi(ABC):
         # blocklist is always first acl
         return acls[0].get("deny", []) if acls else []
 
-    async def _get_conf(
-        self, item: ConfigItem, collection_elements: list[str] | None = None
-    ) -> Any:
+    async def _getconf(self, item: ConfigItem) -> str:
         """Return the relevant config xml, given a configuration key"""
-        result_text = await self.session.get_conf_str(item)
-        return unwrap_xml(result_text, collection_elements)
+        return await self.session.get_conf_str(item)
 
     @staticmethod
     def _normalize_conf_value(current_value: str, new_value: Any) -> str:

@@ -1,13 +1,28 @@
 """Adds AJAX Statistics and Command methods to RuckusApi"""
+
 from __future__ import annotations
 from collections.abc import AsyncIterator
 import datetime
-from typing import Any
+import sys
 import xml.etree.ElementTree as ET
 from xml.sax import saxutils
 import xmltodict
 
-from .ajaxtyping import Alarm, Ap, ApGroup, ApStats, Client, Dpsk, Event, L2Policy, Rogue, Wlan, WlanGroup, Vap
+from .unleashedtojson import parse_ajax_response
+
+from .ajaxtyping import (
+    Alarm,
+    Ap,
+    ApGroup,
+    Dpsk,
+    Event,
+    L2Policy,
+    Wlan,
+    WlanGroup,
+    Vap,
+)
+from .ajax_typing import ap, client, Level1, Level2, Level3
+
 
 from .const import (
     ERROR_ACL_NOT_FOUND,
@@ -19,117 +34,179 @@ from .const import (
     ERROR_PASSPHRASE_NAME,
     PatchNewAttributeMode,
     SystemStat,
-    WlanEncryption
+    WlanEncryption,
 )
-from .abcsession import ConfigItem
+from .abcsession import ConfigItem, StatComp
 from .ajaxsession import AjaxSession
 from .ruckusconfigurationapi import RuckusConfigurationApi
+from .unleashedsession import UnleashedSession
 from .utility import *
+
+from .ajax_typing import ap, client, Level1, Level2, Level3
+
+if sys.version_info >= (3, 11):
+    from typing import overload, Any, Literal, TypeVar, Type
+else:
+    from typing_extensions import overload, Any, Literal, TypeVar, Type
+
+D = TypeVar("D")
 
 
 class RuckusAjaxApi(RuckusConfigurationApi):
     """Ruckus ZoneDirector or Unleashed Configuration, Statistics and Commands API"""
+
     session: AjaxSession
+    __session: UnleashedSession
 
     def __init__(self, session: AjaxSession):
         super().__init__(session)
 
+    async def login(self) -> RuckusAjaxApi:
+        self.__session = await UnleashedSession(
+            self.session.host,
+            self.session.username,
+            self.session.password,
+            self.session.websession,
+        ).login()
+        return self
+
     async def close(self) -> None:
-        # handled by parent session for Unleashed/ZoneDirector
-        pass
+        await self.__session.close()
 
     async def get_system_info(self, *sections: SystemStat) -> dict:
-        section_keys: list[str]
         if sections:
             section_keys = [s for section_list in sections for s in section_list.value]
         else:
             section_keys = SystemStat.DEFAULT.value
-            
-        section = ''.join(f"<{s}/>" for s in section_keys)
+
+        section = "".join(f"<{s}/>" for s in section_keys)
         sysinfo = await self.cmdstat(
             f"<ajax-request action='getstat' comp='system'>{section}</ajax-request>"
         )
         return sysinfo.get("response", sysinfo.get("system"))
 
-    async def get_active_clients(self, interval_stats: bool = False) -> list[Client]:
+    async def get_active_clients(self, stats_level: Type[client.ClientLevelT] = Level1) -> list[ClientLevelT]:
         """Return a list of active clients"""
-        if interval_stats:
-            endtime = await self._get_timestamp_at_controller()
-            starttime = endtime - 86400
-            clientrequest = f"<client INTERVAL-STATS='yes' INTERVAL-START='{starttime}' INTERVAL-STOP='{endtime}' />"
-        else:
-            clientrequest = "<client LEVEL='1' />"
-        return await self.cmdstat(f"<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>{clientrequest}</ajax-request>", ["client"])
-
-    async def get_inactive_clients(self) -> list[Client]:
-        """Return a list of inactive clients"""
-        return await self.cmdstat("<ajax-request action='getstat' comp='stamgr' enable-gzip='0'><clientlist period='0' /></ajax-request>", ["client"])
-
-    async def get_ap_stats(self) -> list[ApStats]:
-        """Return a list of AP statistics"""
-        return await self.cmdstat(
-            "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
-            "<ap LEVEL='1' /></ajax-request>", ["ap"]
+        return await self._get_entity_stats(
+            "client", (ClientL1, ClientL2, ClientL3), stats_level
         )
+
+    async def get_inactive_clients(self) -> list[ClientL1]:
+        """Return a list of inactive clients"""
+        return await self._getstat(list[ClientL1], "<clientlist period='0' />")
+
+    async def get_ap_stats(self, stats_level: Type[ap.ApLevelT] = ap.ApL1) -> list[ApLevelT]:
+        """Return a list of AP statistics"""
+        return await self._get_entity_stats("ap", stats_level)
 
     async def get_ap_group_stats(self) -> list[ApGroup]:
         """Return a list of AP group statistics"""
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
-            "<apgroup /></ajax-request>", ["group", "radio", "ap"]
+            "<apgroup /></ajax-request>",
+            ["group", "radio", "ap"],
         )
 
     async def get_vap_stats(self) -> list[Vap]:
         """Return a list of Virtual AP (per-radio WLAN) statistics"""
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0' caller='SCI'>"
-            "<vap INTERVAL-STATS='no' LEVEL='1' /></ajax-request>", ["vap"]
+            "<vap INTERVAL-STATS='no' LEVEL='1' /></ajax-request>",
+            ["vap"],
         )
 
     async def get_wlan_group_stats(self) -> list[WlanGroup]:
         """Return a list of WLAN group statistics"""
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0' caller='SCI'>"
-            "<wlangroup /></ajax-request>", ["wlangroup", "wlan"]
+            "<wlangroup /></ajax-request>",
+            ["wlangroup", "wlan"],
         )
 
     async def get_dpsk_stats(self) -> list[Dpsk]:
         """Return a list of AP group statistics"""
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
-            "<dpsklist /></ajax-request>", ["dpsk"]
+            "<dpsklist /></ajax-request>",
+            ["dpsk"],
         )
 
     async def get_active_rogues(self) -> list[Rogue]:
         """Return a list of currently active rogue devices"""
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
-            "<rogue LEVEL='1' recognized='!true'/></ajax-request>", ["rogue"]
+            "<rogue LEVEL='1' recognized='!true'/></ajax-request>",
+            ["rogue"],
         )
 
     async def get_known_rogues(self, limit: int = 300) -> list[Rogue]:
         """Return a list of known/recognized rogues devices"""
-        return [rogue async for rogue in self.cmdstat_piecewise("stamgr", "rogue", "apstamgr-stat", filters={"LEVEL": "1", "recognized": "true"}, updater="krogue", limit=limit)]
+        return [
+            rogue
+            async for rogue in self.cmdstat_piecewise(
+                "stamgr",
+                "rogue",
+                "apstamgr-stat",
+                filters={"LEVEL": "1", "recognized": "true"},
+                updater="krogue",
+                limit=limit,
+            )
+        ]
 
     async def get_blocked_rogues(self, limit: int = 300) -> list[Rogue]:
         """Return a list of user blocked rogues devices"""
-        return [rogue async for rogue in self.cmdstat_piecewise("stamgr", "rogue", "apstamgr-stat", filters={"LEVEL": "1", "blocked": "true"}, updater="brogue", limit=limit)]
+        return [
+            rogue
+            async for rogue in self.cmdstat_piecewise(
+                "stamgr",
+                "rogue",
+                "apstamgr-stat",
+                filters={"LEVEL": "1", "blocked": "true"},
+                updater="brogue",
+                limit=limit,
+            )
+        ]
 
-    async def get_alarms(self, limit: int = 300, filters: dict | None = None) -> list[Alarm]:
+    async def get_alarms(
+        self, limit: int = 300, filters: dict | None = None
+    ) -> list[Alarm]:
         """Return a list of alerts"""
-        return [alarm async for alarm in self.cmdstat_piecewise("eventd", "alarm", updater="page", filters=filters, limit=limit)]
+        return [
+            alarm
+            async for alarm in self.cmdstat_piecewise(
+                "eventd", "alarm", updater="page", filters=filters, limit=limit
+            )
+        ]
 
-    async def get_events(self, limit: int = 300, filters: dict | None = None)-> list[Event]:
+    async def get_events(
+        self, limit: int = 300, filters: dict | None = None
+    ) -> list[Event]:
         """Return a list of events"""
-        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filters=filters, limit=limit)]
+        return [
+            xevent
+            async for xevent in self.cmdstat_piecewise(
+                "eventd", "xevent", filters=filters, limit=limit
+            )
+        ]
 
     async def get_wlan_events(self, *wlan_ids, limit: int = 300) -> list[Event]:
         """Return a list of WLAN events"""
-        return await self.get_events(limit, {"wlan": list(wlan_ids) if wlan_ids else "*"})
+        return await self.get_events(
+            limit, {"wlan": list(wlan_ids) if wlan_ids else "*"}
+        )
 
     async def get_ap_events(self, *ap_macs, limit: int = 300) -> list[Event]:
         """Return a list of AP events"""
-        return await self.get_events(limit, {"ap": list(normalize_mac_lower(mac) for mac in ap_macs) if ap_macs else "*"})
+        return await self.get_events(
+            limit,
+            {
+                "ap": (
+                    list(normalize_mac_lower(mac) for mac in ap_macs)
+                    if ap_macs
+                    else "*"
+                )
+            },
+        )
 
     async def get_client_events(self, limit: int = 300) -> list[Event]:
         """Return a list of client events"""
@@ -151,8 +228,12 @@ class RuckusAjaxApi(RuckusConfigurationApi):
     async def get_backup(self) -> bytes:
         """Return a backup"""
         assert self.session.base_url is not None
-        backup_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%y_%H_%M")
-        request = (self.session.base_url / "_savebackup.jsp").with_query({"time": backup_timestamp})
+        backup_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
+            "%m%d%y_%H_%M"
+        )
+        request = (self.session.base_url / "_savebackup.jsp").with_query(
+            {"time": backup_timestamp}
+        )
         return await self.session.request_file(request, 60)
 
     async def do_block_client(self, mac: str) -> None:
@@ -174,10 +255,13 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         """Unblock a client"""
         mac = normalize_mac_lower(mac)
         blocked = await self.get_blocked_client_macs()
-        remaining = ''.join((
-            f"<deny mac='{deny['mac']}' type='single'/>" for deny in blocked
-            if deny["mac"] != mac
-        ))
+        remaining = "".join(
+            (
+                f"<deny mac='{deny['mac']}' type='single'/>"
+                for deny in blocked
+                if deny["mac"] != mac
+            )
+        )
         await self._do_conf(
             f"<ajax-request action='updobj' comp='acl-list' updater='blocked-clients'>"
             f"<acl id='1' name='System' description='System' default-mode='allow' EDITABLE='false'>"
@@ -197,18 +281,21 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         macs = [normalize_mac_lower(mac) for mac in macs]
         acl_tag = "deny" if acl["default-mode"] == "allow" else "accept"
 
-        acl = ET.Element("acl", {
-            "id": acl["id"],
-            "name": acl["name"],
-            "description": acl["description"],
-            "default-mode": acl["default-mode"]
-        })
+        acl = ET.Element(
+            "acl",
+            {
+                "id": acl["id"],
+                "name": acl["name"],
+                "description": acl["description"],
+                "default-mode": acl["default-mode"],
+            },
+        )
         for mac in macs:
             ET.SubElement(acl, acl_tag, {"mac": mac})
 
         await self._do_conf(
             f"<ajax-request action='updobj' comp='acl-list' updater='acl-list'>"
-            f"{ET.tostring(acl).decode('utf-8')}</ajax-request>"
+            f"{ET.tostring(acl, encoding='unicode')}</ajax-request>"
         )
 
     async def do_delete_ap_group(self, name: str) -> bool:
@@ -239,15 +326,14 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         await self.do_disable_wlan(name, False)
 
     async def do_set_wlan_password(
-        self,
-        name: str,
-        passphrase: str,
-        sae_passphrase: str | None = None
+        self, name: str, passphrase: str, sae_passphrase: str | None = None
     ) -> None:
         """Set a WLAN password"""
         sae_passphrase = sae_passphrase or passphrase
         await self.do_edit_wlan(
-            name, {"wpa": {"passphrase": passphrase, "sae-passphrase": sae_passphrase}}, PatchNewAttributeMode.ADD
+            name,
+            {"wpa": {"passphrase": passphrase, "sae-passphrase": sae_passphrase}},
+            PatchNewAttributeMode.ADD,
         )
 
     async def do_add_wlan(
@@ -257,10 +343,14 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         passphrase: str | None = None,
         sae_passphrase: str | None = None,
         ssid_override: str | None = None,
-        ignore_unknown_attributes: bool = False
+        ignore_unknown_attributes: bool = False,
     ) -> None:
         """Add a WLAN"""
-        patch: dict[str, Any] = {"name": name, "ssid": ssid_override or name, "encryption": encryption.value}
+        patch: dict[str, Any] = {
+            "name": name,
+            "ssid": ssid_override or name,
+            "encryption": encryption.value,
+        }
         if passphrase is not None or sae_passphrase is not None:
             patch_wpa: dict[str, str] = {}
             patch["wpa"] = patch_wpa
@@ -280,11 +370,16 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         if new_name is not None or new_ssid is not None:
             if new_name is None:
                 raise ValueError(ERROR_PASSPHRASE_NAME)
-            self._patch_template(wlansvc, {"name": new_name, "ssid": new_ssid or new_name})
+            self._patch_template(
+                wlansvc, {"name": new_name, "ssid": new_ssid or new_name}
+            )
         await self._add_wlan_template(wlansvc)
 
     async def do_edit_wlan(
-        self, name: str, patch: dict, patch_new_attributes: PatchNewAttributeMode = PatchNewAttributeMode.ERROR
+        self,
+        name: str,
+        patch: dict,
+        patch_new_attributes: PatchNewAttributeMode = PatchNewAttributeMode.ERROR,
     ) -> None:
         """Edit a WLAN"""
         wlansvc = await self._get_wlan_template(name)
@@ -301,13 +396,18 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         ts = ruckus_timestamp()
         await self._do_conf(
             f"<ajax-request action='delobj' updater='wlansvc-list.{ts}' comp='wlansvc-list'>"
-            f"<wlansvc id='{wlan['id']}'/></ajax-request>", timeout=20
+            f"<wlansvc id='{wlan['id']}'/></ajax-request>",
+            timeout=20,
         )
         return True
 
-    async def do_add_wlan_group(self, name: str, description: str = "", wlans: list | None = None) -> None:
+    async def do_add_wlan_group(
+        self, name: str, description: str = "", wlans: list | None = None
+    ) -> None:
         """Add a WLAN group"""
-        wlangroup = ET.Element("wlangroup", {"name": name, "description": description or ""})
+        wlangroup = ET.Element(
+            "wlangroup", {"name": name, "description": description or ""}
+        )
         if wlans is not None:
             wlan_map = {wlan["name"]: wlan["id"] for wlan in await self.get_wlans()}
             for wlansvc in wlans:
@@ -323,22 +423,27 @@ class RuckusAjaxApi(RuckusConfigurationApi):
                 ET.SubElement(wlangroup, "wlansvc", {"id": wlan_map[wlan_name]})
         await self._do_conf(
             f"<ajax-request action='addobj' comp='wlangroup-list' updater='wgroup'>"
-            f"{ET.tostring(wlangroup).decode('utf-8')}</ajax-request>"
+            f"{ET.tostring(wlangroup, encoding='unicode')}</ajax-request>"
         )
 
-    async def do_clone_wlan_group(self, template: dict, name: str, description: str | None = None) -> None:
+    async def do_clone_wlan_group(
+        self, template: dict, name: str, description: str | None = None
+    ) -> None:
         """Clone a WLAN group"""
-        wlangroup = ET.Element("wlangroup", {
-            "name": name,
-            "description": description or template.get("description", "")
-        })
+        wlangroup = ET.Element(
+            "wlangroup",
+            {
+                "name": name,
+                "description": description or template.get("description", ""),
+            },
+        )
         if "wlan" in template:
             wlan_map = {wlan["name"]: wlan["id"] for wlan in await self.get_wlans()}
             for wlansvc in template["wlan"]:
                 ET.SubElement(wlangroup, "wlansvc", {"id": wlan_map[wlansvc["name"]]})
         await self._do_conf(
             f"<ajax-request action='addobj' comp='wlangroup-list' updater='wgroup'>"
-            f"{ET.tostring(wlangroup).decode('utf-8')}</ajax-request>"
+            f"{ET.tostring(wlangroup, encoding='unicode')}</ajax-request>"
         )
 
     async def do_delete_wlan_group(self, name: str) -> bool:
@@ -378,6 +483,23 @@ class RuckusAjaxApi(RuckusConfigurationApi):
             f"comp='stamgr'><xcmd cmd='reset' ap='{mac}' tag='ap' checkAbility='2'/></ajax-request>"
         )
 
+    async def _get_entity_stats(
+        self,
+        entity_name: str,
+        types: tuple[type[D], type[D], type[D]],
+        level: StatsLevel,
+    ) -> Any:
+        if level == StatsLevel.L3:
+            interval_end = await self._get_timestamp_at_controller()
+            interval_start = interval_end - 86400
+            payload = (
+                f"<{entity_name} INTERVAL-STATS='yes' "
+                f"INTERVAL-START='{interval_start}' INTERVAL-STOP='{interval_end}' />"
+            )
+        else:
+            payload = f"<{entity_name} LEVEL='{level.value}' />"
+        return await self._getstat(list[types[level.value - 1]], payload)
+
     async def _get_default_apgroup_template(self) -> ET.Element:
         """Get default AP group template"""
         xml = await self.session.get_conf_str(ConfigItem.APGROUP_TEMPLATE)
@@ -399,24 +521,53 @@ class RuckusAjaxApi(RuckusConfigurationApi):
     @staticmethod
     def _get_default_cli_wlan_template() -> ET.Element:
         """Default WLAN for when (very old) ZDs don't provide one via AJAX"""
-        wlansvc = ET.Element("wlansvc", {
-            "name": "default-standard-wlan", "ssid": "", "authentication": "open",
-            "encryption": "none", "is-guest": "false", "max-clients-per-radio": "100",
-            "do-802-11d": "disabled", "sta-info-extraction": "1", "force-dhcp": "0",
-            "force-dhcp-timeout": "10", "usage": "user", "policy-id": "", "policy6-id": "",
-            "precedence-id": "1", "devicepolicy-id": "", "role-based-access-ctrl": "false",
-            "acl-id": "1", "local-bridge": "1", "client-isolation": "disabled",
-            "ci-whitelist-id": "0", "bgscan": "1", "idle-timeout": "1", "max-idle-timeout": "300",
-            "dis-dgaf": "0", "authstats": "0", "https-redirection": "disabled"
-        })
-        ET.SubElement(wlansvc, "qos", {"uplink-preset": "DISABLE", "downlink-preset": "DISABLE"})
-        ET.SubElement(wlansvc, "queue-priority", {
-            "voice": "0", "video": "2", "data": "4", "background": "6"
-        })
-        ET.SubElement(wlansvc, "wlan-schedule", {
-            "value": "0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:"
-            "0x0:0x0:0x0:0x0: 0x0:0x0:0x0:0x0:0x0:0x0"
-        })
+        wlansvc = ET.Element(
+            "wlansvc",
+            {
+                "name": "default-standard-wlan",
+                "ssid": "",
+                "authentication": "open",
+                "encryption": "none",
+                "is-guest": "false",
+                "max-clients-per-radio": "100",
+                "do-802-11d": "disabled",
+                "sta-info-extraction": "1",
+                "force-dhcp": "0",
+                "force-dhcp-timeout": "10",
+                "usage": "user",
+                "policy-id": "",
+                "policy6-id": "",
+                "precedence-id": "1",
+                "devicepolicy-id": "",
+                "role-based-access-ctrl": "false",
+                "acl-id": "1",
+                "local-bridge": "1",
+                "client-isolation": "disabled",
+                "ci-whitelist-id": "0",
+                "bgscan": "1",
+                "idle-timeout": "1",
+                "max-idle-timeout": "300",
+                "dis-dgaf": "0",
+                "authstats": "0",
+                "https-redirection": "disabled",
+            },
+        )
+        ET.SubElement(
+            wlansvc, "qos", {"uplink-preset": "DISABLE", "downlink-preset": "DISABLE"}
+        )
+        ET.SubElement(
+            wlansvc,
+            "queue-priority",
+            {"voice": "0", "video": "2", "data": "4", "background": "6"},
+        )
+        ET.SubElement(
+            wlansvc,
+            "wlan-schedule",
+            {
+                "value": "0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:0x0:"
+                "0x0:0x0:0x0:0x0: 0x0:0x0:0x0:0x0:0x0:0x0"
+            },
+        )
         return wlansvc
 
     async def _get_wlan_template(self, name: str) -> ET.Element | None:
@@ -441,20 +592,26 @@ class RuckusAjaxApi(RuckusConfigurationApi):
             wpa = wlansvc.find("wpa")
             new_wpa = {"cipher": "aes", "dynamic-psk": "disabled"}
 
-            if new_encryption in (WlanEncryption.WPA2.value, WlanEncryption.WPA23_MIXED.value):
+            if new_encryption in (WlanEncryption.WPA2, WlanEncryption.WPA23_MIXED):
                 passphrase = wpa.get("passphrase") if wpa is not None else None
-                if not (patch_wpa and patch_wpa.get("passphrase")) and passphrase is None:
+                if (
+                    not (patch_wpa and patch_wpa.get("passphrase"))
+                    and passphrase is None
+                ):
                     raise ValueError(ERROR_PASSPHRASE_MISSING)
                 new_wpa["passphrase"] = passphrase or "<passphrase>"
-            if new_encryption in (WlanEncryption.WPA3.value, WlanEncryption.WPA23_MIXED.value):
+            if new_encryption in (WlanEncryption.WPA3, WlanEncryption.WPA23_MIXED):
                 sae_passphrase = wpa.get("sae_passphrase") if wpa is not None else None
-                if not (patch_wpa and patch_wpa.get("sae_passphrase")) and sae_passphrase is None:
+                if (
+                    not (patch_wpa and patch_wpa.get("sae_passphrase"))
+                    and sae_passphrase is None
+                ):
                     raise ValueError(ERROR_SAEPASSPHRASE_MISSING)
                 new_wpa["sae-passphrase"] = sae_passphrase or "<passphrase>"
 
             if wpa is not None:
                 wlansvc.remove(wpa)
-            if new_encryption != WlanEncryption.NONE.value:
+            if new_encryption != WlanEncryption.NONE:
                 ET.SubElement(wlansvc, "wpa", new_wpa)
 
     def _patch_template(
@@ -462,7 +619,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         element: ET.Element,
         patch: dict,
         patch_new_attributes: PatchNewAttributeMode = PatchNewAttributeMode.ERROR,
-        current_path: str = ""
+        current_path: str = "",
     ) -> None:
         visited_children = set()
         for child in element:
@@ -471,7 +628,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
                     child,
                     patch[child.tag],
                     patch_new_attributes,
-                    f"{current_path}/{child.tag}"
+                    f"{current_path}/{child.tag}",
                 )
                 visited_children.add(child.tag)
         for name, value in patch.items():
@@ -479,7 +636,9 @@ class RuckusAjaxApi(RuckusConfigurationApi):
                 continue
 
             if isinstance(value, list):
-                raise ValueError(f"Applying lists is unsupported: {current_path}/{name}")
+                raise ValueError(
+                    f"Applying lists is unsupported: {current_path}/{name}"
+                )
 
             current_value = element.get(name)
             if current_value is None:
@@ -496,18 +655,18 @@ class RuckusAjaxApi(RuckusConfigurationApi):
 
     async def _update_wlan_template(self, wlansvc: ET.Element):
         """Update WLAN template"""
-        xml_bytes = ET.tostring(wlansvc)
         await self._do_conf(
             f"<ajax-request action='updobj' updater='wlan' comp='wlansvc-list'>"
-            f"{xml_bytes.decode('utf-8')}</ajax-request>", timeout=20
+            f"{ET.tostring(wlansvc, encoding='unicode')}</ajax-request>",
+            timeout=20,
         )
 
     async def _add_wlan_template(self, wlansvc: ET.Element):
         """Add WLAN template"""
-        xml_bytes = ET.tostring(wlansvc)
         await self._do_conf(
             f"<ajax-request action='addobj' updater='wlansvc-list' comp='wlansvc-list'>"
-            f"{xml_bytes.decode('utf-8')}</ajax-request>", timeout=20
+            f"{ET.tostring(wlansvc, encoding='unicode')}</ajax-request>",
+            timeout=20,
         )
 
     async def _find_ap_by_mac(self, mac: str) -> Ap | None:
@@ -516,52 +675,77 @@ class RuckusAjaxApi(RuckusConfigurationApi):
 
     async def _find_ap_group_by_name(self, name: str) -> ApGroup | None:
         """Find AP group by name"""
-        return next((
-            ap_group for ap_group in await self.get_ap_groups() if ap_group["name"] == name
-        ), None)
+        return next(
+            (
+                ap_group
+                for ap_group in await self.get_ap_groups()
+                if ap_group["name"] == name
+            ),
+            None,
+        )
 
     async def _find_wlan_by_name(self, name: str) -> Wlan | None:
         """Find WLAN by name"""
-        return next((
-            wlan for wlan in await self.get_wlans() if wlan["name"] == name
-        ), None)
+        return next(
+            (wlan for wlan in await self.get_wlans() if wlan["name"] == name), None
+        )
 
     async def _find_wlan_group_by_name(self, name: str) -> WlanGroup | None:
         """Find WLAN group by name"""
-        return next((
-            wlang for wlang in await self.get_wlan_groups() if wlang["name"] == name
-        ), None)
+        return next(
+            (wlang for wlang in await self.get_wlan_groups() if wlang["name"] == name),
+            None,
+        )
 
     async def _find_acl_by_name(self, name: str) -> L2Policy | None:
         """Find L2 ACL by name"""
-        return next((
-            acl for acl in await self.get_acls() if acl["name"] == name
-        ), None)
+        return next((acl for acl in await self.get_acls() if acl["name"] == name), None)
 
     async def _get_timestamp_at_controller(self) -> int:
         """Get timestamp at controller"""
-        ts = ruckus_timestamp()
-        time_info = await self.cmdstat(
-            f"<ajax-request action='getstat' updater='system.{ts}' comp='system'>"
-            f"<time/></ajax-request>"
+        time_info = await self._getstat(dict, "<time/>", comp="system")
+        return int(time_info["time"]["time"])
+
+    async def _getstat(
+        self,
+        target_type: type[D],
+        stat: str | ET.Element | None = None,
+        *,
+        comp: str | StatComp = StatComp.STAMGR,
+        timeout: int | None = None,
+    ) -> D:
+        return await self.__session.getstat(
+            target_type, stat, comp=comp, timeout=timeout
         )
-        return int(time_info["response"]["time"]["time"])
+
+    async def _getconf(
+        self,
+        comp: str | ConfigItem,
+        *,
+        timeout: int | None = None,
+    ) -> str:
+        return await self.__session.getconf(comp, timeout=timeout)
 
     async def _cmdstat_noparse(self, data: str, timeout: int | None = None) -> str:
         """Call cmdstat without parsing response"""
-        assert self.session.base_url is not None
-        return await self.session.request(self.session.base_url / "_cmdstat.jsp", data, timeout)
+        assert self.__session is not None
+        return await self.__session._ajax_request("_cmdstat.jsp", data, timeout=timeout)
 
-    async def cmdstat(
-        self, data: str, collection_elements: list[str] | None = None, aggressive_unwrap: bool = True,
-        timeout: int | None = None
-    ) -> Any:
+    async def cmdstat(self, data: str, timeout: int | None = None) -> Any:
         """Call cmdstat and parse xml result"""
         result_text = await self._cmdstat_noparse(data, timeout)
-        return unwrap_xml(result_text, collection_elements, aggressive_unwrap)
+        return parse_ajax_response(result_text)
 
     async def cmdstat_piecewise(
-        self, comp: str, element_type: str, element_collection: str | None = None, filters: dict[str, Any] | None = None, limit: int = 300, page_size: int | None = None,  updater: str | None = None, timeout: int | None = None
+        self,
+        comp: str,
+        element_type: str,
+        element_collection: str | None = None,
+        filters: dict[str, Any] | None = None,
+        limit: int = 300,
+        page_size: int | None = None,
+        updater: str | None = None,
+        timeout: int | None = None,
     ) -> AsyncIterator[Any]:
         """Call cmdstat and parse piecewise xml results"""
 
@@ -575,16 +759,18 @@ class RuckusAjaxApi(RuckusConfigurationApi):
             "@start": 0,
             "@number": page_size,
             "@requestId": f"{updater}.{ts_time}",
-            "@cleanupId": f"{updater}.{ts_time}.{ts_random}"
+            "@cleanupId": f"{updater}.{ts_time}.{ts_random}",
         }
 
-        request = {"ajax-request": {
-            "@action": "getstat",
-            "@comp": comp,
-            "@updater": f"{updater}.{ts_time}.{ts_random}",
-            element_type: self._get_filter_object(filters),
-            "pieceStat": piece_stat
-        }}
+        request = {
+            "ajax-request": {
+                "@action": "getstat",
+                "@comp": comp,
+                "@updater": f"{updater}.{ts_time}.{ts_random}",
+                element_type: self._get_filter_object(filters),
+                "pieceStat": piece_stat,
+            }
+        }
 
         pid = 0
         item_number = 0
@@ -599,8 +785,12 @@ class RuckusAjaxApi(RuckusConfigurationApi):
             piece_stat["@start"] = item_number
             piece_stat["@number"] = page_size
 
-            request_xml = xmltodict.unparse(request, full_document=False, short_empty_elements=True)
-            response = (await self.cmdstat(request_xml, [element_type], aggressive_unwrap=False))[element_collection]
+            request_xml = xmltodict.unparse(
+                request, full_document=False, short_empty_elements=True
+            )
+            response = (
+                await self.cmdstat(request_xml, [element_type], aggressive_unwrap=False)
+            )[element_collection]
 
             if element_type not in response:
                 return
@@ -614,12 +804,13 @@ class RuckusAjaxApi(RuckusConfigurationApi):
                 return
 
     @staticmethod
-    def _get_filter_object(filters: dict[str, Any] | None = None, sort_by: str = "time", sort_descending: bool = True) -> dict:
+    def _get_filter_object(
+        filters: dict[str, Any] | None = None,
+        sort_by: str = "time",
+        sort_descending: bool = True,
+    ) -> dict:
 
-        result = {
-            "@sortBy": sort_by,
-            "@sortDirection": -1 if sort_descending else 1
-        }
+        result = {"@sortBy": sort_by, "@sortDirection": -1 if sort_descending else 1}
         if filters is not None:
             for key, values in filters.items():
                 if isinstance(values, str):
@@ -629,22 +820,15 @@ class RuckusAjaxApi(RuckusConfigurationApi):
                     result[f"@{key}"] = joined_values
         return result
 
-    async def _conf_noparse(self, data: str, timeout: int | None = None) -> str:
-        """Call conf without parsing response"""
-        assert self.session.base_url is not None
-        return await self.session.request(self.session.base_url / "_conf.jsp", data, timeout)
-
-    async def conf(
-        self, data: str, collection_elements: list[str] | None = None, timeout: int | None = None
-    ) -> Any:
+    async def conf(self, data: str, *, timeout: int | None = None) -> Any:
         """Call conf and parse xml result"""
-        result_text = await self._conf_noparse(data, timeout)
-        return unwrap_xml(result_text, collection_elements)
+        return await self.__session.getconf(list, data, timeout=timeout)
 
-    async def _do_conf(
-        self, data: str, collection_elements: list[str] | None = None, timeout: int | None = None
-    ) -> None:
+    async def _do_conf(self, data: str, timeout: int | None = None) -> None:
         """Call conf and confirm success"""
-        result = await self.conf(data, collection_elements, timeout)
+        result = await self.conf(data, timeout=timeout)
         if "xmsg" in result:
             raise ValueError(result["xmsg"]["lmsg"])
+
+    async def _get_conf(self, item: ConfigItem) -> Any:
+        return await self.__session.conf_getconf(list, item)

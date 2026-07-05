@@ -16,13 +16,13 @@ class RuckusBackupApi(RuckusConfigurationApi):
 
     async def get_system_info(self, *sections: SystemStat) -> dict:
         """Return system information"""
-        system_info = (await self._get_conf(ConfigItem.SYSTEM))["system"]
+        system_info = (await self._getconf(ConfigItem.SYSTEM))
         metadata = self.session.get_metadata()
         system_info["sysinfo"] = {
             "version": f"{metadata['VERSION']} build {metadata['BUILD']}",
             "version-num": metadata["VERSION"],
             "build-num": metadata["BUILD"],
-            "model": metadata["APMODEL"]
+            "model": metadata["APMODEL"],
         }
         
         section_keys: list[str]

@@ -1,23 +1,29 @@
-"""Add enough AJAX methods to support Home Assistant"""
+"""Just enough AJAX methods to support Home Assistant"""
 
 from __future__ import annotations
 import asyncio
-from operator import itemgetter
-from typing import Any, cast, override
 from itertools import groupby
-
+from operator import itemgetter
+import sys
 from .abcsession import ConfigItem
 from .ajaxsession import AjaxSession
-from .ajaxtyping import *
+from .ajaxtyping import Ap, Wlan, Mesh, L2Rule, _ClientStatsLevel1, _ApStatsLevel1
 from .const import SystemStat
 from .exceptions import AuthorizationError
 from .ruckusajaxapi import RuckusAjaxApi
 from .smartzonesession import SmartZoneSession
 from .smartzonetyping import BlockClientDict
-from .utility import *
+from .utility import normalize_mac_upper, remove_nones
+
+if sys.version_info >= (3, 11):
+    from typing import Any, cast, override
+else:
+    from typing_extensions import Any, cast, override
+
 
 class SmartZoneAjaxApi(RuckusAjaxApi):
     """Ruckus SmartZone compatibility shim"""
+
     __session: SmartZoneSession
 
     def __init__(self, session: AjaxSession):
@@ -28,7 +34,7 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
             self.session.host,
             self.session.username,
             self.session.password,
-            self.session.websession
+            self.session.websession,
         ).login()
         return self
 
@@ -38,26 +44,39 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
     async def get_aps(self) -> list[Ap]:
         """Return a list of APs"""
         aps = await self.__session.query("query/ap")
-        return cast(list[Ap], [
-            {**ap, "id": ap["apMac"], "mac": ap["apMac"], "devname": ap["deviceName"], "version": ap["firmwareVersion"]} 
-            for ap in aps
-        ])
+        return cast(
+            list[Ap],
+            [
+                {
+                    **ap,
+                    "id": ap["apMac"],
+                    "mac": ap["apMac"],
+                    "devname": ap["deviceName"],
+                    "version": ap["firmwareVersion"],
+                }
+                for ap in aps
+            ],
+        )
 
     async def get_wlans(self) -> list[Wlan]:
         """Return a list of WLANs"""
         wlans = await self.__session.query("query/wlan")
-        return cast(list[Wlan], [
-            {**wlan, "id": wlan["wlanId"]}
-            for wlan in wlans
-        ])
+        return cast(list[Wlan], [{**wlan, "id": wlan["wlanId"]} for wlan in wlans])
 
     async def get_system_info(self, *sections: SystemStat) -> dict:
         """Return system information"""
         sz = self.__session.session_info
         assert sz
-        return{
-            "sysinfo": { "version": sz["controllerVersion"] ,"serial": sz["domainId"] if "partnerDomain" in sz else sz.get("cpSerialNumber", sz["cpId"]) },
-            "identity": await self.get_mesh_info()
+        return {
+            "sysinfo": {
+                "version": sz["controllerVersion"],
+                "serial": (
+                    sz["domainId"]
+                    if "partnerDomain" in sz
+                    else sz.get("cpSerialNumber", sz["cpId"])
+                ),
+            },
+            "identity": await self.get_mesh_info(),
         }
 
     async def get_mesh_info(self) -> Mesh:
@@ -67,24 +86,26 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         # network. We will use the Partner Domain or Cluster Name if available.
         sz = self.__session.session_info
         assert sz
-        return { "name": sz.get("partnerDomain") or sz.get("cpName", "SmartZone") }
+        return {"name": sz.get("partnerDomain") or sz.get("cpName", "SmartZone")}
 
     async def get_blocked_client_macs(self) -> list[L2Rule]:
         """Return a list of blocked client MACs"""
         blocks = await self.__session.query("blockClient/query")
-        mac_key = itemgetter('mac')
+        mac_key = itemgetter("mac")
         blocks.sort(key=mac_key)
-        return cast(list[L2Rule], [
-            {'mac': mac, 'zones': list(zones)}
-            for mac, zones in groupby(blocks, key=mac_key)
-        ])
+        return cast(
+            list[L2Rule],
+            [
+                {"mac": mac, "zones": list(zones)}
+                for mac, zones in groupby(blocks, key=mac_key)
+            ],
+        )
 
     async def do_block_client(self, mac: str) -> None:
         """Block a client"""
         mac = normalize_mac_upper(mac)
         blocked_clients, aps = await asyncio.gather(
-            self.get_blocked_client_macs(),
-            self.__session.query("query/ap")
+            self.get_blocked_client_macs(), self.__session.query("query/ap")
         )
         blocks = cast(list[BlockClientDict], blocked_clients)
         # identify zones where client is already blocked
@@ -93,21 +114,41 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         # identify a sample member AP per zone
         zone_ap_map = {ap["zoneId"]: ap for ap in aps}
         block_client_list = [
-            ap for zone_id, ap in zone_ap_map.items()
+            ap
+            for zone_id, ap in zone_ap_map.items()
             if zone_id not in already_blocked_zones
         ]
         if block_client_list:
             sz = self.__session.session_info
             assert sz
-            ap_access = next((p["access"] for p in sz["permissionCategories"]["list"] if p["resource"].endswith("AP_CATEGORY")), None)
+            ap_access = next(
+                (
+                    p["access"]
+                    for p in sz["permissionCategories"]["list"]
+                    if p["resource"].endswith("AP_CATEGORY")
+                ),
+                None,
+            )
             if ap_access == "FULL_ACCESS":
-                await self.__session.post("blockClient", {"blockClientList": [{"mac": mac, "apMac": ap["apMac"]} for ap in block_client_list]})
+                await self.__session.post(
+                    "blockClient",
+                    {
+                        "blockClientList": [
+                            {"mac": mac, "apMac": ap["apMac"]}
+                            for ap in block_client_list
+                        ]
+                    },
+                )
                 return
             try:
                 for block_client in block_client_list:
-                    await self.__session.post(f"blockClient/byZoneId/{block_client["zoneId"]}", {"mac": mac})
-            except AuthorizationError:
-                raise AuthorizationError("Blocking clients requires AP [Full Access] and Device [Read], or AP [Read] and Device [Full Access] permissions")
+                    await self.__session.post(
+                        f"blockClient/byZoneId/{block_client['zoneId']}", {'mac': mac}
+                    )
+            except AuthorizationError as err:
+                raise AuthorizationError(
+                    "Blocking clients requires AP [Full Access] and Device [Read], or AP [Read] and Device [Full Access] permissions"
+                ) from err
 
     async def do_unblock_client(self, mac: str) -> None:
         """Unblock a client"""
@@ -118,10 +159,12 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         if id_list:
             try:
                 await self.__session.delete("blockClient", {"idList": id_list})
-            except AuthorizationError:
-                raise AuthorizationError("Unblocking clients requires Device [Full Access] permissions")
+            except AuthorizationError as err:
+                raise AuthorizationError(
+                    "Unblocking clients requires Device [Full Access] permissions"
+                ) from err
 
-    async def get_active_clients(self, interval_stats: bool = False) -> list[Client]:
+    async def get_active_clients(self, interval_stats: bool = False) -> list[_ClientStatsLevel1]:
         """Return a list of active clients"""
         clients = await self.__session.query("query/client")
         return cast(list[Client], [
@@ -129,7 +172,7 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
             for client in clients
         ])
 
-    async def get_inactive_clients(self) -> list[Client]:
+    async def get_inactive_clients(self) -> list[_ClientStatsLevel1]:
         """Return a list of inactive clients"""
         clients = await self.__session.query("query/historicalclient")
         return cast(list[Client], [
@@ -137,23 +180,40 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
             for client in clients
         ])
 
-    async def get_ap_stats(self) -> list[ApStats]:
+    async def get_ap_stats(self) -> list[_ApStatsLevel1]:
         """Return a list of AP statistics"""
         aps = await self.__session.query("query/ap")
-        return cast(list[ApStats], [
-            {**ap, "mac": ap["apMac"], "devname": ap["deviceName"], "firmware-version": ap["firmwareVersion"], "serial-number": ap["serial"]} 
-            for ap in aps
-        ])
+        return cast(
+            list[_ApStatsLevel1],
+            [
+                {
+                    **ap,
+                    "mac": ap["apMac"],
+                    "devname": ap["deviceName"],
+                    "firmware-version": ap["firmwareVersion"],
+                    "serial-number": ap["serial"],
+                }
+                for ap in aps
+            ],
+        )
 
     async def do_disable_wlan(self, name: str, disable_wlan: bool = True) -> None:
         """Disable a WLAN"""
-        id_list = [wlan["wlanId"] for wlan in await self.__session.query("query/wlan") if wlan["name"] == name]
+        id_list = [
+            wlan["wlanId"]
+            for wlan in await self.__session.query("query/wlan")
+            if wlan["name"] == name
+        ]
         if id_list:
             action = "disable" if disable_wlan else "enable"
             try:
-                await self.__session.post(f"rkszones/wlans/{action}", {"idList": id_list})
-            except AuthorizationError:
-                raise AuthorizationError("Enable/disable WLAN requires WLAN [Modify] permissions")
+                await self.__session.post(
+                    f"rkszones/wlans/{action}", {"idList": id_list}
+                )
+            except AuthorizationError as err:
+                raise AuthorizationError(
+                    "Enable/disable WLAN requires WLAN [Modify] permissions"
+                ) from err
 
     async def do_hide_ap_leds(self, mac: str, leds_off: bool = True) -> None:
         """Hide AP LEDs"""
@@ -166,7 +226,9 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         if not specific:
             # PUT aps/{mac}/specific requires valid collection properties, even if
             # we just want defaults. So grab Group defaults
-            specific = await self.__session.get(f"rkszones/{ap["zoneId"]}/apgroups/{ap["apGroupId"]}/apmodel/{ap["model"]}")
+            specific = await self.__session.get(
+                f"rkszones/{ap['zoneId']}/apgroups/{ap['apGroupId']}/apmodel/{ap['model']}"
+            )
         specific = remove_nones(specific)
         if specific.get("ledStatusEnabled") == leds_on:
             return
@@ -180,9 +242,12 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         # GET aps/{mac} returns default lanPorts sub-properties which are
         # illegal to send back in our PUT aps/{mac}/specific payload
         for lanPort in specific["lanPorts"]:
-            if "overwriteVlanEnabled" not in lanPort or not lanPort["overwriteVlanEnabled"]:
+            if (
+                "overwriteVlanEnabled" not in lanPort
+                or not lanPort["overwriteVlanEnabled"]
+            ):
                 if "vlanUntagId" in lanPort:
-                    del lanPort["vlanUntagId"] 
+                    del lanPort["vlanUntagId"]
                 if "members" in lanPort:
                     del lanPort["members"]
         await self.__session.put(f"aps/{mac}/specific", specific)
@@ -199,7 +264,10 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
     @override
     async def _cmdstat_noparse(self, data: str, timeout: int | None = None) -> str:
         raise NotImplementedError
+
     #
     @override
-    async def _get_conf(self, item: ConfigItem, collection_elements: list[str] | None = None) -> Any:
+    async def _get_conf(
+        self, item: ConfigItem, collection_elements: list[str] | None = None
+    ) -> Any:
         raise NotImplementedError

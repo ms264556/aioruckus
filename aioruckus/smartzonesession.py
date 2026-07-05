@@ -1,16 +1,30 @@
+"""SmartZoneSession class."""
+
 from __future__ import annotations
-from math import ceil
-
-import aiohttp
 import asyncio
-from typing import Any, cast
-
-from .const import ERROR_CONNECT_EOF, ERROR_CONNECT_TIMEOUT, ERROR_NO_SESSION, ERROR_POST_REDIRECTED
+from math import ceil
+import sys
+import aiohttp
+from yarl import URL
+from .const import (
+    ERROR_CONNECT_EOF,
+    ERROR_CONNECT_TIMEOUT,
+    ERROR_NO_SESSION,
+    ERROR_POST_REDIRECTED,
+)
 from .exceptions import AuthenticationError, AuthorizationError, BusinessRuleError
 from .smartzonetyping import PermissionCategoriesDict, SessionDict
-from .utility import *
+from .utility import create_legacy_client_session, get_host_url, cast_timeout
+
+if sys.version_info >= (3, 11):
+    from typing import Any, cast
+else:
+    from typing_extensions import Any, cast
+
 
 class SmartZoneSession:
+    """Manage sessions and make API requests to Ruckus SmartZone."""
+
     host: str
     username: str
     password: str
@@ -24,7 +38,7 @@ class SmartZoneSession:
         host: str,
         username: str,
         password: str,
-        websession: aiohttp.ClientSession | None = None
+        websession: aiohttp.ClientSession | None = None,
     ) -> None:
         self.host = host
         self.username = username
@@ -40,36 +54,41 @@ class SmartZoneSession:
         await self.close()
 
     async def login(self) -> SmartZoneSession:
-        """Create SmartZone session."""
+        """Authenticate with the SmartZone controller and establish a session."""
         try:
             target_url = get_host_url(self.host)
             assert target_url.host is not None
 
-            base_url = URL.build(scheme="https", host=target_url.host, port=8443, path="/wsg/api/public")
+            base_url = URL.build(
+                scheme="https", host=target_url.host, port=8443, path="/wsg/api/public"
+            )
             async with self.__client.get(
-                base_url / "apiInfo", timeout=aiohttp.ClientTimeout(total=3), allow_redirects=False
+                base_url / "apiInfo",
+                timeout=aiohttp.ClientTimeout(total=3),
+                allow_redirects=False,
             ) as api_info:
                 if api_info.status != 200:
                     raise ConnectionError(ERROR_CONNECT_EOF)
                 api_versions = await api_info.json()
-                supported_versions = api_versions.get('apiSupportVersions')
+                supported_versions = api_versions.get("apiSupportVersions")
                 if not isinstance(supported_versions, list) or not supported_versions:
-                    raise ConnectionError("SmartZone controller did not return a list of supported API versions.")
+                    raise ConnectionError(
+                        "SmartZone controller did not return a list of supported API versions."
+                    )
                 latest_version = supported_versions[-1]
                 if not isinstance(latest_version, str):
-                    raise ConnectionError(f"SmartZone controller returned an invalid API version format: {latest_version!r}.")
+                    raise ConnectionError(
+                        f"SmartZone controller returned an invalid API version format: {latest_version!r}."
+                    )
 
                 self.__base_url = base_url / latest_version
                 self.__client.headers["Content-Type"] = "application/json;charset=UTF-8"
 
                 async with self.__client.post(
                     self.__base_url / "serviceTicket",
-                    json={
-                        "username": self.username,
-                        "password": self.password
-                    },
+                    json={"username": self.username, "password": self.password},
                     timeout=aiohttp.ClientTimeout(total=3),
-                    allow_redirects=False
+                    allow_redirects=False,
                 ) as service_ticket:
                     ticket_info = await service_ticket.json()
                     if service_ticket.status != 200:
@@ -84,31 +103,42 @@ class SmartZoneSession:
                 async with self.__client.get(
                     self.__base_url / "userGroups/currentUser/permissionCategories",
                     params={"serviceTicket": self.__service_ticket},
-                    allow_redirects=False
+                    allow_redirects=False,
                 ) as user_permissions:
-                    permission_categories = cast(PermissionCategoriesDict, await user_permissions.json())
+                    permission_categories = cast(
+                        PermissionCategoriesDict, await user_permissions.json()
+                    )
 
                 async with self.__client.get(
                     self.__base_url / "session",
                     params={"serviceTicket": self.__service_ticket},
-                    allow_redirects=False
+                    allow_redirects=False,
                 ) as logon_session:
                     session_info = await logon_session.json()
                     session_info["apiVersion"] = latest_version
                     session_info["controllerVersion"] = controller_version
                     session_info["permissionCategories"] = permission_categories
-                    if session_info['domainId'] != "8b2081d5-9662-40d9-a3db-2a3cf4dde3f7" and "@" in self.username:
+                    if (
+                        session_info["domainId"]
+                        != "8b2081d5-9662-40d9-a3db-2a3cf4dde3f7"
+                        and "@" in self.username
+                    ):
                         session_info["partnerDomain"] = self.username.rsplit("@", 1)[1]
 
-                if any(d.get("resource") == "CLUSTER_CATEGORY" for d in permission_categories["list"]):
+                if any(
+                    d.get("resource") == "CLUSTER_CATEGORY"
+                    for d in permission_categories["list"]
+                ):
                     cp_id = session_info["cpId"]
                     async with self.__client.get(
                         self.__base_url / "controlPlanes",
                         params={"serviceTicket": self.__service_ticket},
-                        allow_redirects=False
+                        allow_redirects=False,
                     ) as control_planes:
                         planes = await control_planes.json()
-                        plane = next((p for p in planes["list"] if p["id"] == cp_id), None)
+                        plane = next(
+                            (p for p in planes["list"] if p["id"] == cp_id), None
+                        )
                         if plane:
                             session_info["cpName"] = plane["name"]
                             session_info["cpSerialNumber"] = plane["serialNumber"]
@@ -127,7 +157,7 @@ class SmartZoneSession:
             raise ConnectionError(ERROR_CONNECT_TIMEOUT) from terr
 
     async def close(self) -> None:
-        """Logout of SmartZone and close websessiom"""
+        """Logout and close websession"""
         if self.__client:
             try:
                 if self.__base_url and self.__service_ticket:
@@ -135,48 +165,107 @@ class SmartZoneSession:
                         self.__base_url / "serviceTicket",
                         params={"serviceTicket": self.__service_ticket},
                         timeout=cast_timeout(3),
-                        allow_redirects=False
+                        allow_redirects=False,
                     )
             finally:
                 if self.__auto_cleanup_websession:
                     await self.__client.close()
 
-    async def get(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
-        return await self._request("get", cmd, uri_params=params, timeout=cast_timeout(timeout))
+    async def get(
+        self,
+        cmd: str,
+        params: dict | None = None,
+        *,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+    ) -> Any:
+        """Send a GET request to the SmartZone API endpoint."""
+        return await self._request(
+            "get", cmd, uri_params=params, timeout=cast_timeout(timeout)
+        )
 
-    async def post(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
-        return await self._request("post", cmd, json=params or {}, timeout=cast_timeout(timeout))
+    async def post(
+        self,
+        cmd: str,
+        params: dict | None = None,
+        *,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+    ) -> Any:
+        """Send a POST request to the SmartZone API endpoint."""
+        return await self._request(
+            "post", cmd, json=params or {}, timeout=cast_timeout(timeout)
+        )
 
-    async def put(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
-        return await self._request("put", cmd, json=params or {}, timeout=cast_timeout(timeout))
+    async def put(
+        self,
+        cmd: str,
+        params: dict | None = None,
+        *,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+    ) -> Any:
+        """Send a PUT request to the SmartZone API endpoint."""
+        return await self._request(
+            "put", cmd, json=params or {}, timeout=cast_timeout(timeout)
+        )
 
-    async def patch(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
-        return await self._request("patch", cmd, json=params or {}, timeout=cast_timeout(timeout))
+    async def patch(
+        self,
+        cmd: str,
+        params: dict | None = None,
+        *,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+    ) -> Any:
+        """Send a PATCH request to the SmartZone API endpoint."""
+        return await self._request(
+            "patch", cmd, json=params or {}, timeout=cast_timeout(timeout)
+        )
 
-    async def delete(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
-        return await self._request("delete", cmd, json=params or {}, timeout=cast_timeout(timeout))
+    async def delete(
+        self,
+        cmd: str,
+        params: dict | None = None,
+        *,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+    ) -> Any:
+        """Send a DELETE request to the SmartZone API endpoint."""
+        return await self._request(
+            "delete", cmd, json=params or {}, timeout=cast_timeout(timeout)
+        )
 
-    async def query(self, cmd: str, params: dict | None = None, page_size: int = 5, pages_limit: int = 100, timeout: aiohttp.ClientTimeout | int | None = None) -> list:
+    async def query(
+        self,
+        cmd: str,
+        params: dict | None = None,
+        *,
+        page_size: int = 100,
+        pages_limit: int = 100,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+    ) -> list:
+        """Query a paginated SmartZone API endpoint, returning a list of all results."""
         query = params or {}
         timeout = cast_timeout(timeout)
 
-        first_page = await self.post(cmd, {**query, "page": 1, "limit": page_size}, timeout)
+        first_page = await self.post(
+            cmd, {**query, "page": 1, "limit": page_size}, timeout=timeout
+        )
         results: list[Any] = first_page.get("list", [])
         if not results or not first_page.get("hasMore"):
             return results
         page_count = min(pages_limit, ceil(first_page["totalCount"] / page_size))
         if page_count < 2:
             return results
-        for page in await asyncio.gather(*[
-            # _request() rather than post(), so we can turn off retries
-            self._request("post",
-                cmd,
-                json={**query, "page": page_num, "limit": page_size},
-                timeout=timeout,
-                retrying=True,
-            )
-            for page_num in range(2, page_count + 1)
-        ]):
+        for page in await asyncio.gather(
+            *[
+                # _request() rather than post(), so we can turn off retries
+                self._request(
+                    "post",
+                    cmd,
+                    json={**query, "page": page_num, "limit": page_size},
+                    timeout=timeout,
+                    retrying=True,
+                )
+                for page_num in range(2, page_count + 1)
+            ]
+        ):
             results.extend(page["list"])
         return results
 
@@ -184,6 +273,7 @@ class SmartZoneSession:
         self,
         method: str,
         cmd: str,
+        *,
         uri_params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
         timeout: aiohttp.ClientTimeout | None = None,
@@ -210,13 +300,24 @@ class SmartZoneSession:
                 if retrying:
                     raise AuthorizationError(ERROR_POST_REDIRECTED)
                 await self.login()
-                return await self._request(method, cmd, uri_params, json, timeout, True)
+                return await self._request(
+                    method,
+                    cmd,
+                    uri_params=uri_params,
+                    json=json,
+                    timeout=timeout,
+                    retrying=True,
+                )
             return await self._parse_response(response)
 
     @staticmethod
     async def _parse_response(response: aiohttp.ClientResponse) -> Any:
         if response.status == 200:
-            return await response.json() if response.content_type == "application/json" else None
+            return (
+                await response.json()
+                if response.content_type == "application/json"
+                else None
+            )
         elif response.status in (201, 202, 204):
             return None
         elif response.status == 403:
@@ -224,7 +325,10 @@ class SmartZoneSession:
         try:
             response_json = await response.json()
             error_code = response_json["errorCode"]
-        except:
-            raise RuntimeError(response.status)
-        raise BusinessRuleError(response_json["message"] if error_code == 0 else f"{response_json["errorType"]}: {response_json["message"]}")
-
+        except Exception as err:
+            raise RuntimeError(response.status) from err
+        raise BusinessRuleError(
+            response_json["message"]
+            if error_code == 0
+            else f"{response_json['errorType']}: {response_json['message']}"
+        )
