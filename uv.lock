@@ -34,7 +34,7 @@ wheels = [
 
 [[package]]
 name = "aioruckus"
-version = "0.43"
+version = "0.44"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -52,9 +52,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", specifier = "==3.9.5" },
-    { name = "cryptography", specifier = "==41.0.7" },
-    { name = "xmltodict", specifier = "==0.13.0" },
+    { name = "aiohttp", specifier = ">=3.9.5" },
+    { name = "cryptography", specifier = ">=41.0.7" },
+    { name = "xmltodict", specifier = ">=0.13.0" },
 ]
 
 [package.metadata.requires-dev]

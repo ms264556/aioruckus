@@ -42,13 +42,14 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
 
     async def get_aps(self) -> list[Ap]:
         """Return a list of APs"""
-        aps = await self.__session.get("venues/aps")
+        aps = await self.__session.query("venues/aps/query")
         return cast(list[Ap], [
             {
                 **ap,
-                "id": ap["mac"],
+                "id": ap["macAddress"],
+                "mac": ap["macAddress"],
                 "devname": ap["name"],
-                "version": ap["firmware"],
+                "version": ap["firmwareVersion"],
                 "serial": ap["serialNumber"],
             }
             for ap in aps

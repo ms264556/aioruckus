@@ -96,7 +96,7 @@ class RuckusOneSession:
     async def delete(self, cmd: str, json: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None, fire_and_forget: bool = False) -> Any:
         return await self._request("delete", cmd, json=json, timeout=timeout, fire_and_forget=fire_and_forget)
 
-    async def query(self, cmd: str, params: dict | None = None, page_size: int = 5, pages_limit: int = 100, timeout: aiohttp.ClientTimeout | int | None = None) -> list:
+    async def query(self, cmd: str, params: dict | None = None, page_size: int = 100, pages_limit: int = 100, timeout: aiohttp.ClientTimeout | int | None = None) -> list:
         query = params or {}
         timeout = cast_timeout(timeout)
 
