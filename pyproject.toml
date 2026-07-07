@@ -1,10 +1,10 @@
 [build-system]
-requires = ["uv_build>=0.11,<0.12"]
-build-backend = "uv_build"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
 [project]
 name = "aioruckus"
-version = "0.46"
+dynamic = ["version"]
 description = "Python API to interact with Ruckus Unleashed and ZoneDirector devices"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -23,6 +23,10 @@ dependencies = [
     "xmltodict>=0.13.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/ms264556/aioruckus"
+Issues = "https://github.com/ms264556/aioruckus/issues"
+
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
@@ -39,5 +43,11 @@ testpaths = [
 [tool.pylint.main]
 load-plugins = ["pylint_pytest"]
 
-[tool.uv.build-backend]
-module-root = ""
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+local_scheme = "no-local-version"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "aioruckus/_version.py"
