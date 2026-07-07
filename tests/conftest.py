@@ -82,12 +82,15 @@ def aiohttp_context():
             exception=ClientConnectorError(cast(Any, None), OSError()),
             repeat=True,
         )
-        m.get(
-            re.compile(r"^https://api\.(?:eu\.|asia\.)ruckus\.cloud/venues/aps$"),
-            payload=[
-                {'mac': '8c:7a:15:3e:21:d0', 'serialNumber': '302139502811', 'name': 'AnR650', 'model': 'R650', 'firmware': '6.2.4.103.259'},
-                {'mac': '80:03:84:3f:88:d0', 'serialNumber': '502039500072', 'name': 'My Second R650', 'model': 'R650', 'firmware': '6.2.4.103.259'}
-            ],
+        m.post(
+            re.compile(r"^https://api\.(?:eu\.|asia\.)ruckus\.cloud/venues/aps/query$"),
+            payload={
+                'data': [
+                    {'macAddress': '8c:7a:15:3e:21:d0', 'serialNumber': '302139502811', 'name': 'AnR650', 'model': 'R650', 'firmwareVersion': '6.2.4.103.259'},
+                    {'macAddress': '80:03:84:3f:88:d0', 'serialNumber': '502039500072', 'name': 'My Second R650', 'model': 'R650', 'firmwareVersion': '6.2.4.103.259'}
+                ],
+                'totalCount': 2
+            },
             repeat=True,
         )
         m.get(

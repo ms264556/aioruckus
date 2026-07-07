@@ -69,11 +69,12 @@ class MockClientResponse:
             return self._body.encode("utf-8")
         return self._body
 
-    async def text(self, encoding="utf-8"):
+    async def text(self, encoding: str | None = None, errors: str = "strict", *args, **kwargs) -> str:
         if self.exception:
             raise self.exception
         if isinstance(self._body, bytes):
-            return self._body.decode(encoding)
+            enc = encoding or self.charset or "utf-8"
+            return self._body.decode(enc, errors=errors)
         return self._body
 
     async def json(self, *args, **kwargs):
@@ -94,6 +95,9 @@ class MockClientResponse:
     async def release(self):
         pass
 
+    async def wait_for_close(self):
+        pass
+    
     async def __aenter__(self):
         return self
 
