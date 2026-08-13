@@ -1,6 +1,9 @@
 """Exceptions used in aioruckus."""
 
 
+class NotDirectorError(Exception):
+    """The target device is not Ruckus Unleashed/ZoneDirector"""
+
 class AuthenticationError(Exception):
     """Invalid login."""
 

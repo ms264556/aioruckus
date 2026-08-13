@@ -24,19 +24,35 @@ from .const import (
 from .abcsession import ConfigItem
 from .ajaxsession import AjaxSession
 from .ruckusconfigurationapi import RuckusConfigurationApi
+from .unleashedsession import UnleashedSession
 from .utility import *
 
 
 class RuckusAjaxApi(RuckusConfigurationApi):
     """Ruckus ZoneDirector or Unleashed Configuration, Statistics and Commands API"""
     session: AjaxSession
+    __session: UnleashedSession | None = None
 
     def __init__(self, session: AjaxSession):
         super().__init__(session)
 
+    async def login(self) -> RuckusAjaxApi:
+        self.__session = await UnleashedSession(
+            self.session.host,
+            self.session.username,
+            self.session.password,
+            self.session.websession,
+        ).login()
+        return self
+
     async def close(self) -> None:
-        # handled by parent session for Unleashed/ZoneDirector
-        pass
+        if self.__session:
+            await self.__session.close()
+
+    async def _get_conf_str(self, item: ConfigItem, timeout: int | None = None) -> str:
+        """Return the relevant config xml, given a configuration key"""
+        assert self.__session is not None
+        return await self.__session.get_conf_str(item, timeout)
 
     async def get_system_info(self, *sections: SystemStat) -> dict:
         section_keys: list[str]
@@ -150,10 +166,10 @@ class RuckusAjaxApi(RuckusConfigurationApi):
 
     async def get_backup(self) -> bytes:
         """Return a backup"""
-        assert self.session.base_url is not None
+        assert self.__session is not None and self.__session.base_url is not None
         backup_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%y_%H_%M")
-        request = (self.session.base_url / "_savebackup.jsp").with_query({"time": backup_timestamp})
-        return await self.session.request_file(request, 60)
+        request = (self.__session.base_url / "_savebackup.jsp").with_query({"time": backup_timestamp})
+        return await self.__session._request_file(request, timeout=60)
 
     async def do_block_client(self, mac: str) -> None:
         """Block a client"""
@@ -380,7 +396,8 @@ class RuckusAjaxApi(RuckusConfigurationApi):
 
     async def _get_default_apgroup_template(self) -> ET.Element:
         """Get default AP group template"""
-        xml = await self.session.get_conf_str(ConfigItem.APGROUP_TEMPLATE)
+        assert self.__session is not None
+        xml = await self.__session.get_conf_str(ConfigItem.APGROUP_TEMPLATE)
         root = ET.fromstring(xml)
         apgroup = root.find(".//apgroup")
         if apgroup is None:
@@ -389,7 +406,8 @@ class RuckusAjaxApi(RuckusConfigurationApi):
 
     async def _get_default_wlan_template(self) -> ET.Element:
         """Get default WLAN template"""
-        xml = await self.session.get_conf_str(ConfigItem.WLANSVC_STANDARD_TEMPLATE)
+        assert self.__session is not None
+        xml = await self.__session.get_conf_str(ConfigItem.WLANSVC_STANDARD_TEMPLATE)
         root = ET.fromstring(xml)
         wlansvc = root.find(".//wlansvc")
         if wlansvc is not None:
@@ -420,7 +438,8 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         return wlansvc
 
     async def _get_wlan_template(self, name: str) -> ET.Element | None:
-        xml = await self.session.get_conf_str(ConfigItem.WLANSVC_LIST)
+        assert self.__session is not None
+        xml = await self.__session.get_conf_str(ConfigItem.WLANSVC_LIST)
         root = ET.fromstring(xml)
         wlansvc = root.find(f".//wlansvc[@name='{saxutils.escape(name)}']")
         return wlansvc
@@ -549,8 +568,8 @@ class RuckusAjaxApi(RuckusConfigurationApi):
 
     async def _cmdstat_noparse(self, data: str, timeout: int | None = None) -> str:
         """Call cmdstat without parsing response"""
-        assert self.session.base_url is not None
-        return await self.session.request(self.session.base_url / "_cmdstat.jsp", data, timeout)
+        assert self.__session is not None
+        return await self.__session._ajax_request("_cmdstat.jsp", data, timeout=timeout)
 
     async def cmdstat(
         self, data: str, collection_elements: list[str] | None = None, aggressive_unwrap: bool = True,
@@ -631,8 +650,8 @@ class RuckusAjaxApi(RuckusConfigurationApi):
 
     async def _conf_noparse(self, data: str, timeout: int | None = None) -> str:
         """Call conf without parsing response"""
-        assert self.session.base_url is not None
-        return await self.session.request(self.session.base_url / "_conf.jsp", data, timeout)
+        assert self.__session is not None
+        return await self.__session._ajax_request("_conf.jsp", data, timeout=timeout)
 
     async def conf(
         self, data: str, collection_elements: list[str] | None = None, timeout: int | None = None
