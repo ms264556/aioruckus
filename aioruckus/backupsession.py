@@ -24,7 +24,7 @@ class BackupSession(AbcSession):
         backup_path: str
     ) -> None:
         super().__init__()
-        self.backup_file = __open_backup(backup_path)
+        self.backup_file = _open_backup(backup_path)
         self.backup_tarfile = tarfile.open(fileobj=self.backup_file)
         self.backup_filenames = self.backup_tarfile.getnames()
 
@@ -69,7 +69,7 @@ class BackupSession(AbcSession):
         # raise KeyError for consistency with AjaxSession behaviour
         raise KeyError(f"Member '{member}' not found in backup archive.")
 
-def __open_backup(backup_path: str) -> io.BytesIO:
+def _open_backup(backup_path: str) -> io.BytesIO:
     """Return the decrypted backup bytes"""
     with open(backup_path, "rb") as backup_file:
         magic = backup_file.read(4)

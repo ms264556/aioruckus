@@ -8,6 +8,7 @@ from xml.sax import saxutils
 import xmltodict
 
 from .ajaxtyping import Alarm, Ap, ApGroup, ApStats, Client, Dpsk, Event, L2Policy, Rogue, Wlan, WlanGroup, Vap
+from .unleashedtojson import parse_ajax_response
 
 from .const import (
     ERROR_ACL_NOT_FOUND,
@@ -75,17 +76,17 @@ class RuckusAjaxApi(RuckusConfigurationApi):
             clientrequest = f"<client INTERVAL-STATS='yes' INTERVAL-START='{starttime}' INTERVAL-STOP='{endtime}' />"
         else:
             clientrequest = "<client LEVEL='1' />"
-        return await self.cmdstat(f"<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>{clientrequest}</ajax-request>", ["client"])
+        return await self.cmdstat(f"<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>{clientrequest}</ajax-request>", target_type=list[Client])
 
     async def get_inactive_clients(self) -> list[Client]:
         """Return a list of inactive clients"""
-        return await self.cmdstat("<ajax-request action='getstat' comp='stamgr' enable-gzip='0'><clientlist period='0' /></ajax-request>", ["client"])
+        return await self.cmdstat("<ajax-request action='getstat' comp='stamgr' enable-gzip='0'><clientlist period='0' /></ajax-request>", target_type=list[Client])
 
     async def get_ap_stats(self) -> list[ApStats]:
         """Return a list of AP statistics"""
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
-            "<ap LEVEL='1' /></ajax-request>", ["ap"]
+            "<ap LEVEL='1' /></ajax-request>", target_type=list[ApStats]
         )
 
     async def get_ap_group_stats(self) -> list[ApGroup]:
@@ -573,10 +574,14 @@ class RuckusAjaxApi(RuckusConfigurationApi):
 
     async def cmdstat(
         self, data: str, collection_elements: list[str] | None = None, aggressive_unwrap: bool = True,
-        timeout: int | None = None
+        timeout: int | None = None, target_type: type | None = None
     ) -> Any:
         """Call cmdstat and parse xml result"""
         result_text = await self._cmdstat_noparse(data, timeout)
+        if target_type is not None:
+            # TypedDict-driven conversion: the target type describes the
+            # desired structure, no per-request collection elements needed
+            return parse_ajax_response(result_text, target_type)
         return unwrap_xml(result_text, collection_elements, aggressive_unwrap)
 
     async def cmdstat_piecewise(

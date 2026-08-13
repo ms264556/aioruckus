@@ -791,11 +791,30 @@ WlanGroup = TypedDict('WlanGroup', {
     'wlansvc': list[Wlan]
 }, total=False)
 
+ApProperty = TypedDict('ApProperty', {
+    'radio': list[Radio]
+}, total=False)
+
+ApGroupMembers = TypedDict('ApGroupMembers', {
+    'ap': list[Ap]
+}, total=False)
+
+ApGroupWlangroup = TypedDict('ApGroupWlangroup', {
+    'wlansvc': list[Wlan]
+}, total=False)
+
 ApGroup = TypedDict('ApGroup', {
     'id': Required[str],
     'name': Required[str],
     'description': str,
-    'ap': list[Ap]
+    'parent-id': str,
+    'ap-property': ApProperty,
+    'lldp': dict,
+    'members': ApGroupMembers,
+    'models': dict,
+    'ap': list[Ap],
+    'wlangroup': ApGroupWlangroup,
+    'wlansvc': list[Wlan]
 }, total=False)
 
 Client = TypedDict('Client', {
@@ -931,14 +950,18 @@ UrlSafeSearchDns = TypedDict('UrlSafeSearchDns', {
     'dns': str
 }, total=False)
 
+UrlFilterDomain = TypedDict('UrlFilterDomain', {
+    'domain-name': str
+}, total=False)
+
 UrlFilter = TypedDict('UrlFilter', {
     'id': Required[str],
     'name': str,
     'description': str,
     'filtering-level': Literal['CUSTOM', 'NO_ADULT', 'CLEAN_AND_SAFE', 'CHILD_AND_STUDENT_FRIENDLY', 'STRICT'],
     'blockcategories': list[UrlBlockCategory],
-    'blacklist': list[str],
-    'whitelist': list[str],
+    'blacklist': list[UrlFilterDomain],
+    'whitelist': list[UrlFilterDomain],
     'safesearchgoogle': UrlSafeSearchDns,
     'safesearchyoutube': UrlSafeSearchDns,
     'safesearchbing': UrlSafeSearchDns
@@ -995,7 +1018,7 @@ Role = TypedDict('Role', {
     'uplink-preset': str,
     'downlink-preset': str,
     'time-range-type': str,
-    'allow-wlansvc': list[dict],
+    'allow-wlansvc': list[Wlan],
     'time-range': dict,
     'url-filtering': UrlFilter,
     'dvc-pcy': DevicePolicy,
