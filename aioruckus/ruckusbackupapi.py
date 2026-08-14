@@ -1,17 +1,19 @@
 """Adds Backup methods to RuckusApi"""
 from __future__ import annotations
 
-from .const import SystemStat
 from .abcsession import ConfigItem
-from .backupsession import BackupSession
-from .ruckusconfigurationapi import RuckusConfigurationApi
 from .ajaxtyping import Mesh
+from .backupsession import BackupSession
+from .const import SystemStat
+from .ruckusconfigurationapi import RuckusConfigurationApi
+
 
 class RuckusBackupApi(RuckusConfigurationApi):
     """Ruckus ZoneDirector/Unleashed Configuration API"""
     session: BackupSession
 
     def __init__(self, session: BackupSession):
+        """Initialize the API with the given BackupSession."""
         super().__init__(session)
 
     async def get_system_info(self, *sections: SystemStat) -> dict:

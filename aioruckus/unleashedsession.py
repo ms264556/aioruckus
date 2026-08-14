@@ -1,9 +1,11 @@
 """Ruckus Unleashed / ZoneDirector AJAX session."""
 
 from __future__ import annotations
+
 import asyncio
 import sys
 import xml.etree.ElementTree as ET
+
 import aiohttp
 import xmltodict
 from yarl import URL
@@ -20,8 +22,13 @@ from .const import (
     ERROR_POST_REDIRECTED,
 )
 from .exceptions import AuthenticationError, NotDirectorError
-from .unleashedtojson import parse_ajax_response, _restructure
-from .utility import cast_timeout, create_legacy_client_session, get_host_url, ruckus_timestamp
+from .unleashedtojson import _restructure, parse_ajax_response
+from .utility import (
+    cast_timeout,
+    create_legacy_client_session,
+    get_host_url,
+    ruckus_timestamp,
+)
 
 if sys.version_info >= (3, 11):
     from typing import Any
@@ -46,6 +53,15 @@ class UnleashedSession:
         password: str,
         websession: aiohttp.ClientSession | None = None,
     ) -> None:
+        """Initialize the session with connection parameters.
+
+        Args:
+            host: hostname or IP address of the Ruckus controller.
+            username: controller login username.
+            password: controller login password.
+            websession: optional aiohttp client session; one is created
+                (and closed on logout) if not provided.
+        """
         self.host = host
         self.username = username
         self.password = password
@@ -53,10 +69,12 @@ class UnleashedSession:
         self.__auto_cleanup_websession = not websession
 
     async def __aenter__(self) -> UnleashedSession:
+        """Login and return this session for use as an async context manager."""
         await self.login()
         return self
 
     async def __aexit__(self, *exc: Any) -> None:
+        """Close the session when leaving the async context manager."""
         await self.close()
 
     async def login(self) -> UnleashedSession:
@@ -241,6 +259,14 @@ class UnleashedSession:
         sort_by: str = "time",
         sort_descending: bool = True,
     ) -> dict:
+        """Build the XML attribute dict for piecewise cmdstat filters.
+
+        Args:
+            filters: mapping of attribute name to a single value or a list of
+                alternatives; list values are joined with ``|``.
+            sort_by: attribute used to sort the result.
+            sort_descending: sort newest-first when True.
+        """
         result = {"@sortBy": sort_by, "@sortDirection": -1 if sort_descending else 1}
         if filters is not None:
             for key, values in filters.items():

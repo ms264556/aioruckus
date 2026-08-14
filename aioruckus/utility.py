@@ -5,20 +5,26 @@ from __future__ import annotations
 
 import base64
 import binascii
-import xmltodict
 import datetime
 import random
-import aiohttp
 import re
 import ssl
-import xmltodict
 
-from cryptography.hazmat.primitives.padding import PKCS7
+import aiohttp
+import xmltodict
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives.padding import PKCS7
 from yarl import URL
 
-from .const import ERROR_CONNECT_NOPARSE, ERROR_INVALID_MAC, ERROR_PASSPHRASE_JS, ERROR_PASSPHRASE_LEN, ERROR_POST_BADRESULT
+from .const import (
+    ERROR_CONNECT_NOPARSE,
+    ERROR_INVALID_MAC,
+    ERROR_PASSPHRASE_JS,
+    ERROR_PASSPHRASE_LEN,
+    ERROR_POST_BADRESULT,
+)
 from .exceptions import SchemaError
+
 
 def get_host_url(host_str: str) -> URL:
     """Normalize the host input to a URL."""
@@ -30,9 +36,15 @@ def get_host_url(host_str: str) -> URL:
     return parsed_url
 
 def cast_timeout(timeout: aiohttp.ClientTimeout | int | None) -> aiohttp.ClientTimeout | None:
+    """Cast an int timeout to a ClientTimeout, passing others through."""
     return aiohttp.ClientTimeout(total=timeout) if isinstance(timeout, int) else timeout
 
 def create_legacy_client_session() -> aiohttp.ClientSession:
+    """Create a ClientSession compatible with old Ruckus controllers.
+
+    Uses a permissive SSL context (no hostname/chain verification, default
+    ciphers), allows cookies on IP address URLs, and a short keepalive.
+    """
     # create SSLContext which ignores certificate errors and allows old ciphers
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ssl_context.check_hostname = False
@@ -67,6 +79,12 @@ def normalize_mac_upper(mac: str) -> str:
     return __normalize_mac_nocase(mac).upper()
 
 def ruckus_timestamp(time_part: bool = True, random_part: bool = True) -> str:
+    """Return a Ruckus-style AJAX updater timestamp.
+
+    Args:
+        time_part: include the current epoch milliseconds.
+        random_part: append a 4-digit random suffix.
+    """
     return f"{int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000) if time_part else ''}{('.' if time_part and random_part else '')}{int(9000 * random.random()) + 1000 if random_part else ''}"
 
 def validate_passphrase(passphrase: str) -> str:
@@ -78,6 +96,16 @@ def validate_passphrase(passphrase: str) -> str:
     raise ValueError(ERROR_PASSPHRASE_LEN)
 
 def unwrap_xml(xml: str, collection_elements: list[str] | None = None, aggressive_unwrap: bool = True) -> dict | list[dict]:
+    """Parse a Ruckus XML response and unwrap it to the useful payload.
+
+    Args:
+        xml: raw XML response body.
+        collection_elements: element names to treat as collections (force_list).
+        aggressive_unwrap: also unwrap the ``apstamgr-stat`` wrapper.
+
+    Returns:
+        The parsed payload dict, or an empty list when there is no data.
+    """
     # convert xml and unwrap collection
     force_list = None if not collection_elements else {ce: True for ce in collection_elements}
     result = xmltodict.parse(
@@ -99,6 +127,7 @@ def unwrap_xml(xml: str, collection_elements: list[str] | None = None, aggressiv
     return result or []
 
 def _process_ruckus_xml(path, key, value):
+    """xmltodict postprocessor: decrypt passphrases and normalize values."""
     if key.startswith("x-"):
         # passphrases are obfuscated and stored with an x- prefix; decrypt these
         return key[2:], _decrypt_value(key, value) if value else value
@@ -129,6 +158,7 @@ def _process_ruckus_xml(path, key, value):
     return key, value
 
 def _decrypt_value(key: str, encrypted_string: str) -> str:
+    """Decrypt an obfuscated Ruckus value, falling back to the Caesar shift."""
     if key == "x-password" and len(encrypted_string) >= 16 and len(encrypted_string) % 4 == 0 and all(c.isalnum() or c in '/+=' for c in encrypted_string):
         try:
             encrypted_bytes = base64.b64decode(encrypted_string, validate=True)

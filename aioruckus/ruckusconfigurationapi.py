@@ -1,19 +1,41 @@
 """Ruckus ZoneDirector or Unleashed Configuration API"""
 from __future__ import annotations
-from abc import ABC
+
 import asyncio
+from abc import ABC
 from copy import deepcopy
 from typing import Any
 
 from .abcsession import AbcSession, ConfigItem
-from .ajaxtyping import Ap, ApGroup, ArcApplication, ArcPolicy, ArcPort, DevicePolicy, Dpsk, Ip4Policy, Ip6Policy, L2Policy, L2Rule, Mesh, PrecedencePolicy, Role, UrlBlockCategory, UrlFilter, Wlan, WlanGroup
+from .ajaxtyping import (
+    Ap,
+    ApGroup,
+    ArcApplication,
+    ArcPolicy,
+    ArcPort,
+    DevicePolicy,
+    Dpsk,
+    Ip4Policy,
+    Ip6Policy,
+    L2Policy,
+    L2Rule,
+    Mesh,
+    PrecedencePolicy,
+    Role,
+    UrlBlockCategory,
+    UrlFilter,
+    Wlan,
+    WlanGroup,
+)
 from .const import URL_FILTERING_CATEGORIES, SystemStat
 from .unleashedtojson import parse_ajax_response
 from .utility import unwrap_xml
 
+
 class RuckusConfigurationApi(ABC):
     """Ruckus ZoneDirector/Unleashed Configuration API"""
     def __init__(self, session: AbcSession):
+        """Initialize the API with the given session."""
         self.session = session
 
     async def get_aps(self) -> list[Ap]:
@@ -365,6 +387,10 @@ class RuckusConfigurationApi(ABC):
 
     @staticmethod
     def _parse_conf_bool(value: Any) -> bool | Any:
+        """Coerce common boolean representations to bool, else return unchanged.
+
+        Accepts bools, numeric 1/0 and strings like "enable"/"disabled"/"yes"/"no".
+        """
         if isinstance(value, bool):
             return value
         if isinstance(value, (int, float)):

@@ -1,15 +1,16 @@
 """Ruckus AbcSession which connects to Ruckus Unleashed or ZoneDirector backups"""
 from __future__ import annotations
+
 import configparser
 import io
 import struct
 import sys
 import tarfile
-
 from collections.abc import Mapping
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from os import SEEK_CUR
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 if sys.version_info >= (3, 12):
     from typing import override
@@ -29,15 +30,22 @@ class BackupSession(AbcSession):
         self,
         backup_path: str
     ) -> None:
+        """Open a Ruckus backup file for offline access.
+
+        Args:
+            backup_path: path to a (possibly encrypted) Ruckus backup file.
+        """
         super().__init__()
         self.backup_file = _open_backup(backup_path)
         self.backup_tarfile = tarfile.open(fileobj=self.backup_file)
         self.backup_filenames = self.backup_tarfile.getnames()
 
     def __enter__(self) -> BackupSession:
+        """Return this session for use as a context manager."""
         return self
 
     def __exit__(self, *exc: Any) -> None:
+        """Close the backup archive when leaving the context manager."""
         if self.backup_tarfile:
             self.backup_tarfile.close()
         if self.backup_file:
@@ -56,6 +64,7 @@ class BackupSession(AbcSession):
 
     @override
     async def get_conf_str(self, item: ConfigItem, timeout: int | None = None) -> str:
+        """Return the relevant config xml, given a configuration key."""
         xml = self.__get_backup_file(f"etc/airespider/{item.value}.xml")
         return "<ajax-response><response>" + xml + "</response></ajax-response>"
 
@@ -121,14 +130,17 @@ def __open_commscope_backup(backup_file: io.BufferedReader) -> io.BytesIO:
     return output_file
 
 def __skip_block(backup_file: io.BufferedReader) -> None:
+    """Skip a length-prefixed block in the backup file."""
     backup_file.seek(1, SEEK_CUR)
     block_length = int.from_bytes(backup_file.read(4), byteorder='big', signed=False)
     backup_file.seek(block_length, SEEK_CUR)
 
 def __get_block_length(backup_file: io.BufferedReader) -> int:
+    """Return the length of the next length-prefixed block."""
     backup_file.seek(1, SEEK_CUR)
     return int.from_bytes(backup_file.read(4), byteorder='big', signed=False)
 
 def __decrypt_key(cipher_bytes: bytes) -> bytes:
+    """Decrypt the AES key using the embedded RSA public key."""
     padded_key = pow(int.from_bytes(cipher_bytes, 'big'), 65537, 23559046888044776627569879690471525499427612616504460325607886880157810091042540109382540840072568820382270758180649018860535002041926018790203547085546162549326945200443019963900872654422143820799219291504478283808912964667353808795633808052022964371726410677357834881346022671448243831605466569511830964339444687659616502868745663064525218488470606514409811838671765944249166136071060850237167429125523755638111097424494275181385870987411479009552515816450089719197508371290305110717762578033949377936003949760003095430389967102852124783026450284389704957901428442687247403657819155956894836033683283023293306459081).to_bytes(256, 'big')
     return padded_key[padded_key.index(b'\x00', 2) + 1:]

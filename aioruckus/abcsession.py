@@ -1,5 +1,6 @@
-"""Ruckus Session"""
+"""Abstract session interface and configuration keys for Ruckus controllers."""
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -36,6 +37,7 @@ class AbcSession(ABC):
     def __init__(
         self
     ) -> None:
+        """Initialize the session with no API attached yet."""
         self._api = None
 
     @property

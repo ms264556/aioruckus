@@ -1,9 +1,11 @@
 """Ruckus AbcSession which connects to Ruckus Unleashed, ZoneDirector, SmartZone or Ruckus One via HTTPS"""
 from __future__ import annotations
+
 import sys
-from typing import Any, TYPE_CHECKING
-from yarl import URL
+from typing import TYPE_CHECKING, Any
+
 import aiohttp
+from yarl import URL
 
 if sys.version_info >= (3, 12):
     from typing import override
@@ -29,6 +31,15 @@ class AjaxSession(AbcSession):
         password: str,
         auto_cleanup_websession=False,
     ) -> None:
+        """Initialize the session with connection parameters.
+
+        Args:
+            websession: aiohttp client session used for all HTTP requests.
+            host: hostname or IP address of the Ruckus controller.
+            username: controller login username.
+            password: controller login password.
+            auto_cleanup_websession: close `websession` when the session is closed.
+        """
         super().__init__()
 
         self.websession = websession
@@ -42,10 +53,12 @@ class AjaxSession(AbcSession):
         self._api: RuckusAjaxApi | None = None
 
     async def __aenter__(self) -> AjaxSession:
+        """Login and return this session for use as an async context manager."""
         await self.login()
         return self
 
     async def __aexit__(self, *exc: Any) -> None:
+        """Close the session when leaving the async context manager."""
         await self.close()
 
     @property
@@ -86,16 +99,19 @@ class AjaxSession(AbcSession):
                 raise ConnectionError(ERROR_CONNECT_EOF) from err
 
     async def _zd_login(self) -> AjaxSession:
+        """Login to an Unleashed or ZoneDirector controller."""
         from .ruckusajaxapi import RuckusAjaxApi
         self._api = await RuckusAjaxApi(self).login()
         return self
 
     async def _sz_login(self) -> AjaxSession:
+        """Login to a SmartZone controller."""
         from .smartzoneajaxapi import SmartZoneAjaxApi
         self._api = await SmartZoneAjaxApi(self).login()
         return self
 
     async def _r1_login(self) -> AjaxSession:
+        """Login to a Ruckus One controller."""
         from .ruckusoneajaxapi import RuckusOneAjaxApi
         self._api = await RuckusOneAjaxApi(self).login()
         return self

@@ -1,8 +1,9 @@
 """Test connecting to a device and issuing commands."""
 import pytest
 
-from aioruckus.exceptions import AuthenticationError
 from aioruckus.ajaxsession import AjaxSession
+from aioruckus.exceptions import AuthenticationError
+
 
 @pytest.mark.asyncio
 async def test_r1_connect_success():

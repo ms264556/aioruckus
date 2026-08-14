@@ -1,16 +1,25 @@
 from __future__ import annotations
-from math import ceil
 
-import aiohttp
 import asyncio
+from math import ceil
 from typing import Any, cast
 
-from .const import ERROR_CONNECT_EOF, ERROR_CONNECT_TIMEOUT, ERROR_NO_SESSION, ERROR_POST_REDIRECTED
+import aiohttp
+
+from .const import (
+    ERROR_CONNECT_EOF,
+    ERROR_CONNECT_TIMEOUT,
+    ERROR_NO_SESSION,
+    ERROR_POST_REDIRECTED,
+)
 from .exceptions import AuthenticationError, AuthorizationError, BusinessRuleError
 from .smartzonetyping import PermissionCategoriesDict, SessionDict
 from .utility import *
 
+
 class SmartZoneSession:
+    """HTTPS session for the SmartZone REST API."""
+
     host: str
     username: str
     password: str
@@ -26,6 +35,15 @@ class SmartZoneSession:
         password: str,
         websession: aiohttp.ClientSession | None = None
     ) -> None:
+        """Initialize the session with connection parameters.
+
+        Args:
+            host: hostname or IP address of the SmartZone controller.
+            username: controller login username.
+            password: controller login password.
+            websession: optional aiohttp client session; one is created
+                (and closed on logout) if not provided.
+        """
         self.host = host
         self.username = username
         self.password = password
@@ -33,10 +51,12 @@ class SmartZoneSession:
         self.__auto_cleanup_websession = not websession
 
     async def __aenter__(self) -> SmartZoneSession:
+        """Login and return this session for use as an async context manager."""
         await self.login()
         return self
 
     async def __aexit__(self, *exc: Any) -> None:
+        """Close the session when leaving the async context manager."""
         await self.close()
 
     async def login(self) -> SmartZoneSession:
@@ -127,7 +147,7 @@ class SmartZoneSession:
             raise ConnectionError(ERROR_CONNECT_TIMEOUT) from terr
 
     async def close(self) -> None:
-        """Logout of SmartZone and close websessiom"""
+        """Logout of SmartZone and close websession"""
         if self.__client:
             try:
                 if self.__base_url and self.__service_ticket:
@@ -142,21 +162,27 @@ class SmartZoneSession:
                     await self.__client.close()
 
     async def get(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
+        """Perform a GET request against the SmartZone API."""
         return await self._request("get", cmd, uri_params=params, timeout=cast_timeout(timeout))
 
     async def post(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
+        """Perform a POST request against the SmartZone API."""
         return await self._request("post", cmd, json=params or {}, timeout=cast_timeout(timeout))
 
     async def put(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
+        """Perform a PUT request against the SmartZone API."""
         return await self._request("put", cmd, json=params or {}, timeout=cast_timeout(timeout))
 
     async def patch(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
+        """Perform a PATCH request against the SmartZone API."""
         return await self._request("patch", cmd, json=params or {}, timeout=cast_timeout(timeout))
 
     async def delete(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
+        """Perform a DELETE request against the SmartZone API."""
         return await self._request("delete", cmd, json=params or {}, timeout=cast_timeout(timeout))
 
     async def query(self, cmd: str, params: dict | None = None, page_size: int = 100, pages_limit: int = 100, timeout: aiohttp.ClientTimeout | int | None = None) -> list:
+        """POST a query, following pagination until all pages are collected."""
         query = params or {}
         timeout = cast_timeout(timeout)
 
@@ -189,6 +215,7 @@ class SmartZoneSession:
         timeout: aiohttp.ClientTimeout | None = None,
         retrying: bool = False,
     ) -> Any:
+        """Send an authenticated request, re-logging in once if the ticket has expired."""
         if not self.__base_url or not self.__service_ticket:
             raise RuntimeError(ERROR_NO_SESSION)
 
@@ -215,6 +242,7 @@ class SmartZoneSession:
 
     @staticmethod
     async def _parse_response(response: aiohttp.ClientResponse) -> Any:
+        """Parse an API response, raising on error statuses."""
         if response.status == 200:
             return await response.json() if response.content_type == "application/json" else None
         elif response.status in (201, 202, 204):

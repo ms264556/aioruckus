@@ -1,6 +1,7 @@
 """Add enough AJAX methods to support Home Assistant"""
 
 from __future__ import annotations
+
 import asyncio
 import sys
 from copy import deepcopy
@@ -14,17 +15,16 @@ else:
 from aioruckus.abcsession import ConfigItem
 from aioruckus.ajaxtyping import Wlan
 
-from .ruckusonesession import RuckusOneSession
-from .ruckusajaxapi import RuckusAjaxApi
+from .ajaxsession import AjaxSession
 from .ajaxtyping import *
-from .ruckusonetyping import AccessControlPolicyDict, AccessControlProfileDict
-from .utility import *
-
 from .const import (
     R1_CLIENT_BLOCK_NAME,
     SystemStat,
 )
-from .ajaxsession import AjaxSession
+from .ruckusajaxapi import RuckusAjaxApi
+from .ruckusonesession import RuckusOneSession
+from .ruckusonetyping import AccessControlPolicyDict, AccessControlProfileDict
+from .utility import *
 
 
 class RuckusOneAjaxApi(RuckusAjaxApi):
@@ -32,9 +32,11 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
     __session: RuckusOneSession
 
     def __init__(self, session: AjaxSession):
+        """Initialize the API with the given AjaxSession."""
         super().__init__(session)
 
     async def login(self) -> RuckusOneAjaxApi:
+        """Create a Ruckus One HTTPS session and log in."""
         self.__session = await RuckusOneSession(
             self.session.host,
             self.session.username,
@@ -44,6 +46,7 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         return self
 
     async def close(self) -> None:
+        """Close the underlying HTTPS session."""
         await self.__session.close()
 
     async def get_aps(self) -> list[Ap]:
@@ -62,6 +65,7 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         ])
     
     async def get_wlans(self) -> list[Wlan]:
+        """Return a list of WLANs (WiFi networks)."""
         return await self.__session.query("wifiNetworks/query")
 
     async def get_system_info(self, *sections: SystemStat) -> dict:
@@ -126,6 +130,7 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         await self._do_apply_block_policy_to_networks(blocklist_policy)
 
     async def _do_remove_block_policy_from_networks(self, blocklist: AccessControlPolicyDict) -> None:
+        """Detach the blocklist L2 policy from all networks and delete it."""
         blocklist_id = blocklist["id"]
         update_tasks = []
         for acl_profile in await self._query_acl_profiles():
@@ -143,6 +148,7 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         await self.__session.delete(f"l2AclPolicies/{blocklist_id}")
 
     async def _do_apply_block_policy_to_networks(self, blocklist: AccessControlPolicyDict) -> None:
+        """Attach the blocklist L2 policy to all networks without an L2 ACL."""
         blocklist_id = blocklist["id"]
         all_l2_policies, all_wlans = await asyncio.gather(
             self._query_l2_policies(),
@@ -219,10 +225,12 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
             )
 
     async def _query_acl_profile(self, name: str) -> AccessControlProfileDict | None:
+        """Return the access control profile with the given name, or None."""
         profiles = await self._query_acl_profiles({"name": [name]})
         return profiles[0] if profiles else None
 
     async def _query_acl_profiles(self, filters: dict | None = None, l2_policies: list[AccessControlPolicyDict] | None = None) -> list[AccessControlProfileDict]:
+        """Query access control profiles, enriching them with their L2 policies."""
         query_params = { "filters": filters } if filters else {}
         profiles = await self.__session.query("accessControlProfiles/query", query_params)
         if profiles:
@@ -230,6 +238,7 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         return profiles
 
     async def _enrich_acl_profiles_with_l2_policies(self, profiles: list[AccessControlProfileDict], policies: list[AccessControlPolicyDict] | None) -> None:
+        """Replace l2AclPolicyId/l2AclPolicyName keys on profiles with their L2 policy objects."""
         if policies is None:
             policies_to_fetch = {
                 id for p in profiles if (id := p.get("l2AclPolicyId"))
@@ -248,10 +257,12 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
             profile.pop("l2AclPolicyName", None)
 
     async def _query_l2_policy(self, name: str) -> AccessControlPolicyDict | None:
+        """Return the L2 policy with the given name, or None."""
         policies = await self._query_l2_policies({"name": [name]})
         return policies[0] if policies else None
 
     async def _query_l2_policies(self, filters: dict | None = None) -> list[AccessControlPolicyDict]:
+        """Query L2 policies, merging in MAC addresses fetched per policy."""
         query_params = { "filters": filters } if filters else {}
         policies = await self.__session.query("l2AclPolicies/query", query_params)
         if policies:
@@ -264,9 +275,11 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         return policies
 
     async def _get_l2_policy(self, id: str) -> AccessControlPolicyDict:
+        """Return the L2 policy with the given id."""
         return await self.__session.get(f"l2AclPolicies/{id}")
 
     async def _do_update_l2_policy(self, policy: AccessControlPolicyDict) -> None:
+        """Persist updates to the given L2 policy."""
         json = cast(dict, deepcopy(policy))
         id = json["id"]
         del json["id"]
@@ -278,8 +291,10 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
     #
     @override
     async def _cmdstat_noparse(self, data: str, timeout: int | None = None) -> str:
+        """Unsupported on Ruckus One; always raises NotImplementedError."""
         raise NotImplementedError
     #
     @override
     async def _get_conf(self, item: ConfigItem, collection_elements: list[str] | None = None) -> Any:
+        """Unsupported on Ruckus One; always raises NotImplementedError."""
         raise NotImplementedError

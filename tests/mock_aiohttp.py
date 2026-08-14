@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import re
 import json
+import re
 from unittest.mock import patch
-from yarl import URL
+
 from multidict import CIMultiDict, CIMultiDictProxy
+from yarl import URL
 
 
 class CallbackResult:
