@@ -1,6 +1,11 @@
 """Type Hints for SmartZone JSON Payloads"""
 
-from typing import Literal, Required, TypedDict
+import sys
+
+if sys.version_info >= (3, 11):
+    from typing import Literal, Required, TypedDict
+else:
+    from typing_extensions import Literal, Required, TypedDict
 
 from .ajaxtyping import L2Rule
 

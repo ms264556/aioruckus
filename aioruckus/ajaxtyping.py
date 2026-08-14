@@ -1,6 +1,11 @@
 """Type Hints for AJAX Payloads"""
 
-from typing import Literal, Required, TypedDict
+import sys
+
+if sys.version_info >= (3, 11):
+    from typing import Literal, Required, TypedDict
+else:
+    from typing_extensions import Literal, Required, TypedDict
 
 Radio = TypedDict('Radio', {
     "radio-type": str,

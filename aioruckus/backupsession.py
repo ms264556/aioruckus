@@ -3,12 +3,18 @@ from __future__ import annotations
 import configparser
 import io
 import struct
+import sys
 import tarfile
 
 from collections.abc import Mapping
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from os import SEEK_CUR
-from typing import Any, TYPE_CHECKING, override
+from typing import Any, TYPE_CHECKING
+
+if sys.version_info >= (3, 12):
+    from typing import override
+else:
+    from typing_extensions import override
 
 from .abcsession import AbcSession, ConfigItem
 

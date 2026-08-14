@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 import asyncio
+import sys
 from copy import deepcopy
-from typing import Any, cast, override
+from typing import Any, cast
+
+if sys.version_info >= (3, 12):
+    from typing import override
+else:
+    from typing_extensions import override
 
 from aioruckus.abcsession import ConfigItem
 from aioruckus.ajaxtyping import Wlan
@@ -195,7 +201,7 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         ap = next((a for a in aps if a["mac"] == mac), None)
         if ap:
             await self.__session.put(
-                f"venues/{ap["venueId"]}/aps/{ap["serialNumber"]}/ledSettings",
+                f"venues/{ap['venueId']}/aps/{ap['serialNumber']}/ledSettings",
                 {"ledEnabled": not leds_off, "useVenueSettings": False},
                 fire_and_forget=True
             )
@@ -207,7 +213,7 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         ap = next((a for a in aps if a["mac"] == mac), None)
         if ap:
             await self.__session.patch(
-                f"venues/{ap["venueId"]}/aps/{ap["serialNumber"]}/systemCommands",
+                f"venues/{ap['venueId']}/aps/{ap['serialNumber']}/systemCommands",
                 {"type": "REBOOT"},
                 fire_and_forget=True
             )

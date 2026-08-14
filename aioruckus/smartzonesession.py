@@ -226,5 +226,5 @@ class SmartZoneSession:
             error_code = response_json["errorCode"]
         except:
             raise RuntimeError(response.status)
-        raise BusinessRuleError(response_json["message"] if error_code == 0 else f"{response_json["errorType"]}: {response_json["message"]}")
+        raise BusinessRuleError(response_json["message"] if error_code == 0 else f"{response_json['errorType']}: {response_json['message']}")
 

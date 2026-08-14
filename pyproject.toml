@@ -7,7 +7,7 @@ name = "aioruckus"
 dynamic = ["version"]
 description = "Python API to interact with Ruckus Unleashed and ZoneDirector devices"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.9"
 license = "0BSD"
 license-files = ["LICENSE"]
 authors = [
@@ -15,12 +15,19 @@ authors = [
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Operating System :: OS Independent"
 ]
 dependencies = [
     "aiohttp>=3.9.5",
     "cryptography>=41.0.7",
     "xmltodict>=0.13.0",
+    "typing_extensions>=4.5.0; python_version < '3.12'",
 ]
 
 [project.urls]

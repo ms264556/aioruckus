@@ -10,8 +10,13 @@ into lists, empty lists are fixed up, and lists are trimmed using the
 
 from __future__ import annotations
 
+import sys
 from functools import cache
-from types import UnionType
+
+try:
+    from types import UnionType
+except ImportError:  # Python < 3.10
+    UnionType = object()
 from typing import (
     Any,
     NamedTuple,
@@ -21,9 +26,13 @@ from typing import (
     get_args,
     get_origin,
     get_type_hints,
-    is_typeddict,
     overload,
 )
+
+if sys.version_info >= (3, 10):
+    from typing import is_typeddict
+else:
+    from typing_extensions import is_typeddict
 
 import xmltodict
 

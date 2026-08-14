@@ -180,11 +180,11 @@ class RuckusOneSession:
             raise AuthorizationError(ERROR_POST_REDIRECTED)
         elif response.status == 400:
             response_json = await response.json()
-            raise BusinessRuleError(f"{response_json["error"]}: {response_json["path"]}")
+            raise BusinessRuleError(f"{response_json['error']}: {response_json['path']}")
         try:
             response_json = await response.json()
             response_error = response_json["errors"][0]
         except:
             raise RuntimeError(response.status)
-        raise BusinessRuleError(f"{response_error["message"]}: {response_error["reason"]}")
+        raise BusinessRuleError(f"{response_error['message']}: {response_error['reason']}")
 

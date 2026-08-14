@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 import asyncio
+import sys
 from operator import itemgetter
-from typing import Any, cast, override
 from itertools import groupby
+
+if sys.version_info >= (3, 12):
+    from typing import Any, cast, override
+else:
+    from typing_extensions import Any, cast, override
 
 from .abcsession import ConfigItem
 from .ajaxsession import AjaxSession
@@ -105,7 +110,7 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
                 return
             try:
                 for block_client in block_client_list:
-                    await self.__session.post(f"blockClient/byZoneId/{block_client["zoneId"]}", {"mac": mac})
+                    await self.__session.post(f"blockClient/byZoneId/{block_client['zoneId']}", {"mac": mac})
             except AuthorizationError:
                 raise AuthorizationError("Blocking clients requires AP [Full Access] and Device [Read], or AP [Read] and Device [Full Access] permissions")
 
@@ -166,7 +171,7 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         if not specific:
             # PUT aps/{mac}/specific requires valid collection properties, even if
             # we just want defaults. So grab Group defaults
-            specific = await self.__session.get(f"rkszones/{ap["zoneId"]}/apgroups/{ap["apGroupId"]}/apmodel/{ap["model"]}")
+            specific = await self.__session.get(f"rkszones/{ap['zoneId']}/apgroups/{ap['apGroupId']}/apmodel/{ap['model']}")
         specific = remove_nones(specific)
         if specific.get("ledStatusEnabled") == leds_on:
             return

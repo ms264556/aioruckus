@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 import json
 from unittest.mock import patch

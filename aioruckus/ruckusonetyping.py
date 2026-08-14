@@ -1,6 +1,11 @@
 """Type Hints for Ruckus One JSON Payloads"""
 
-from typing import Required, TypedDict, Literal
+import sys
+
+if sys.version_info >= (3, 11):
+    from typing import Literal, Required, TypedDict
+else:
+    from typing_extensions import Literal, Required, TypedDict
 
 class AccessControlPolicyDict(TypedDict, total=False):
     name: Required[str]

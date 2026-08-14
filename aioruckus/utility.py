@@ -1,6 +1,8 @@
 
 """Utility functions shared by all APIs"""
 
+from __future__ import annotations
+
 import base64
 import binascii
 import xmltodict

@@ -1,8 +1,14 @@
 """Ruckus AbcSession which connects to Ruckus Unleashed, ZoneDirector, SmartZone or Ruckus One via HTTPS"""
 from __future__ import annotations
-from typing import Any, TYPE_CHECKING, override
+import sys
+from typing import Any, TYPE_CHECKING
 from yarl import URL
 import aiohttp
+
+if sys.version_info >= (3, 12):
+    from typing import override
+else:
+    from typing_extensions import override
 
 from .abcsession import AbcSession, ConfigItem
 from .const import ERROR_CONNECT_EOF, ERROR_NO_SESSION
