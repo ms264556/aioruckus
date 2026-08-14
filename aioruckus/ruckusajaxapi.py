@@ -1,11 +1,9 @@
 """Adds AJAX Statistics and Command methods to RuckusApi"""
 from __future__ import annotations
-from collections.abc import AsyncIterator
 import datetime
 from typing import Any
 import xml.etree.ElementTree as ET
 from xml.sax import saxutils
-import xmltodict
 
 from .ajaxtyping import Alarm, Ap, ApGroup, ApStats, Client, Dpsk, Event, L2Policy, Rogue, Wlan, WlanGroup, Vap
 from .unleashedtojson import parse_ajax_response
@@ -93,52 +91,52 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         """Return a list of AP group statistics"""
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
-            "<apgroup /></ajax-request>", ["group", "radio", "ap"]
+            "<apgroup /></ajax-request>", target_type=list[ApGroup]
         )
 
     async def get_vap_stats(self) -> list[Vap]:
         """Return a list of Virtual AP (per-radio WLAN) statistics"""
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0' caller='SCI'>"
-            "<vap INTERVAL-STATS='no' LEVEL='1' /></ajax-request>", ["vap"]
+            "<vap INTERVAL-STATS='no' LEVEL='1' /></ajax-request>", target_type=list[Vap]
         )
 
     async def get_wlan_group_stats(self) -> list[WlanGroup]:
         """Return a list of WLAN group statistics"""
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0' caller='SCI'>"
-            "<wlangroup /></ajax-request>", ["wlangroup", "wlan"]
+            "<wlangroup /></ajax-request>", target_type=list[WlanGroup]
         )
 
     async def get_dpsk_stats(self) -> list[Dpsk]:
         """Return a list of AP group statistics"""
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
-            "<dpsklist /></ajax-request>", ["dpsk"]
+            "<dpsklist /></ajax-request>", target_type=list[Dpsk]
         )
 
     async def get_active_rogues(self) -> list[Rogue]:
         """Return a list of currently active rogue devices"""
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
-            "<rogue LEVEL='1' recognized='!true'/></ajax-request>", ["rogue"]
+            "<rogue LEVEL='1' recognized='!true'/></ajax-request>", target_type=list[Rogue]
         )
 
     async def get_known_rogues(self, limit: int = 300) -> list[Rogue]:
         """Return a list of known/recognized rogues devices"""
-        return [rogue async for rogue in self.cmdstat_piecewise("stamgr", "rogue", "apstamgr-stat", filters={"LEVEL": "1", "recognized": "true"}, updater="krogue", limit=limit)]
+        return await self.cmdstat_piecewise("stamgr", "rogue", "apstamgr-stat", filters={"LEVEL": "1", "recognized": "true"}, updater="krogue", limit=limit, target_type=list[Rogue])
 
     async def get_blocked_rogues(self, limit: int = 300) -> list[Rogue]:
         """Return a list of user blocked rogues devices"""
-        return [rogue async for rogue in self.cmdstat_piecewise("stamgr", "rogue", "apstamgr-stat", filters={"LEVEL": "1", "blocked": "true"}, updater="brogue", limit=limit)]
+        return await self.cmdstat_piecewise("stamgr", "rogue", "apstamgr-stat", filters={"LEVEL": "1", "blocked": "true"}, updater="brogue", limit=limit, target_type=list[Rogue])
 
     async def get_alarms(self, limit: int = 300, filters: dict | None = None) -> list[Alarm]:
         """Return a list of alerts"""
-        return [alarm async for alarm in self.cmdstat_piecewise("eventd", "alarm", updater="page", filters=filters, limit=limit)]
+        return await self.cmdstat_piecewise("eventd", "alarm", updater="page", filters=filters, limit=limit, target_type=list[Alarm])
 
     async def get_events(self, limit: int = 300, filters: dict | None = None)-> list[Event]:
         """Return a list of events"""
-        return [xevent async for xevent in self.cmdstat_piecewise("eventd", "xevent", filters=filters, limit=limit)]
+        return await self.cmdstat_piecewise("eventd", "xevent", filters=filters, limit=limit, target_type=list[Event])
 
     async def get_wlan_events(self, *wlan_ids, limit: int = 300) -> list[Event]:
         """Return a list of WLAN events"""
@@ -585,73 +583,30 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         return unwrap_xml(result_text, collection_elements, aggressive_unwrap)
 
     async def cmdstat_piecewise(
-        self, comp: str, element_type: str, element_collection: str | None = None, filters: dict[str, Any] | None = None, limit: int = 300, page_size: int | None = None,  updater: str | None = None, timeout: int | None = None
-    ) -> AsyncIterator[Any]:
-        """Call cmdstat and parse piecewise xml results"""
-
-        ts_time = ruckus_timestamp(random_part=False)
-        ts_random = ruckus_timestamp(time_part=False)
-        updater = updater or comp
-        page_size = page_size or limit
-
-        piece_stat = {
-            "@pid": 0,
-            "@start": 0,
-            "@number": page_size,
-            "@requestId": f"{updater}.{ts_time}",
-            "@cleanupId": f"{updater}.{ts_time}.{ts_random}"
-        }
-
-        request = {"ajax-request": {
-            "@action": "getstat",
-            "@comp": comp,
-            "@updater": f"{updater}.{ts_time}.{ts_random}",
-            element_type: self._get_filter_object(filters),
-            "pieceStat": piece_stat
-        }}
-
-        pid = 0
-        item_number = 0
-        element_collection = element_collection or "response"
-
-        while True:
-            pid += 1
-            if page_size > limit > 0:
-                page_size = limit
-
-            piece_stat["@pid"] = pid
-            piece_stat["@start"] = item_number
-            piece_stat["@number"] = page_size
-
-            request_xml = xmltodict.unparse(request, full_document=False, short_empty_elements=True)
-            response = (await self.cmdstat(request_xml, [element_type], aggressive_unwrap=False))[element_collection]
-
-            if element_type not in response:
-                return
-            for element in response[element_type]:
-                yield element
-                item_number += 1
-                if limit == 1:
-                    return
-                limit -= 1
-            if response["done"] == "true":
-                return
-
-    @staticmethod
-    def _get_filter_object(filters: dict[str, Any] | None = None, sort_by: str = "time", sort_descending: bool = True) -> dict:
-
-        result = {
-            "@sortBy": sort_by,
-            "@sortDirection": -1 if sort_descending else 1
-        }
-        if filters is not None:
-            for key, values in filters.items():
-                if isinstance(values, str):
-                    result[f"@{key}"] = values
-                else:
-                    joined_values = f"|{'|'.join(values)}|"
-                    result[f"@{key}"] = joined_values
-        return result
+        self,
+        comp: str,
+        element_type: str,
+        element_collection: str | None = None,
+        filters: dict[str, Any] | None = None,
+        limit: int = 300,
+        page_size: int | None = None,
+        updater: str | None = None,
+        target_type: type | None = None,
+        timeout: int | None = None,
+    ) -> list[Any]:
+        """Call cmdstat and collect piecewise xml results via the session"""
+        assert self.__session is not None
+        return await self.__session.cmdstat_piecewise(
+            comp,
+            element_type,
+            element_collection=element_collection,
+            filters=filters,
+            limit=limit,
+            page_size=page_size,
+            updater=updater,
+            target_type=target_type,
+            timeout=timeout,
+        )
 
     async def _conf_noparse(self, data: str, timeout: int | None = None) -> str:
         """Call conf without parsing response"""

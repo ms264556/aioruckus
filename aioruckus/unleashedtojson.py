@@ -275,6 +275,10 @@ def parse_ajax_response(
                 result = result[payload_key]
             elif "response" in result:
                 result = result["response"]
+            elif "apstamgr-stat" in result:
+                # The id is only a session tag (e.g. 'DEH'), not a payload
+                # key; fall back to the common stats wrapper
+                result = result["apstamgr-stat"]
         elif "apstamgr-stat" in result:
             # Older controllers don't always include an 'id'
             result = result["apstamgr-stat"]

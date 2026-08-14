@@ -20,7 +20,8 @@ from .const import (
     ERROR_POST_REDIRECTED,
 )
 from .exceptions import AuthenticationError, NotDirectorError
-from .utility import cast_timeout, create_legacy_client_session, get_host_url
+from .unleashedtojson import parse_ajax_response, _restructure
+from .utility import cast_timeout, create_legacy_client_session, get_host_url, ruckus_timestamp
 
 if sys.version_info >= (3, 11):
     from typing import Any
@@ -233,6 +234,98 @@ class UnleashedSession:
                 # if the ajax request payload wasn't understood then we get an empty page back
                 raise RuntimeError(ERROR_POST_NORESULT)
             return result_text
+
+    @staticmethod
+    def _get_filter_object(
+        filters: dict[str, Any] | None = None,
+        sort_by: str = "time",
+        sort_descending: bool = True,
+    ) -> dict:
+        result = {"@sortBy": sort_by, "@sortDirection": -1 if sort_descending else 1}
+        if filters is not None:
+            for key, values in filters.items():
+                if isinstance(values, str):
+                    result[f"@{key}"] = values
+                else:
+                    joined_values = f"|{'|'.join(values)}|"
+                    result[f"@{key}"] = joined_values
+        return result
+
+    async def cmdstat_piecewise(
+        self,
+        comp: str,
+        element_type: str,
+        element_collection: str | None = None,
+        filters: dict[str, Any] | None = None,
+        limit: int = 300,
+        page_size: int | None = None,
+        updater: str | None = None,
+        target_type: type | None = None,
+        timeout: aiohttp.ClientTimeout | int | None = None,
+    ) -> list[Any]:
+        """Call cmdstat and collect piecewise xml results, paging until done.
+
+        Mirrors the R1/SZ session ``query`` paging: pages are fetched until
+        the controller reports ``done`` or ``limit`` elements are collected.
+        """
+        ts_time = ruckus_timestamp(random_part=False)
+        ts_random = ruckus_timestamp(time_part=False)
+        updater = updater or comp
+        page_size = page_size or limit
+
+        piece_stat = {
+            "@pid": 0,
+            "@start": 0,
+            "@number": page_size,
+            "@requestId": f"{updater}.{ts_time}",
+            "@cleanupId": f"{updater}.{ts_time}.{ts_random}",
+        }
+        request = {
+            "ajax-request": {
+                "@action": "getstat",
+                "@comp": comp,
+                "@updater": f"{updater}.{ts_time}.{ts_random}",
+                element_type: self._get_filter_object(filters),
+                "pieceStat": piece_stat,
+            }
+        }
+
+        element_collection = element_collection or "response"
+        results: list[Any] = []
+        pid = 0
+        item_number = 0
+
+        while True:
+            pid += 1
+            if page_size > limit > 0:
+                page_size = limit
+
+            piece_stat["@pid"] = pid
+            piece_stat["@start"] = item_number
+            piece_stat["@number"] = page_size
+
+            request_xml = xmltodict.unparse(
+                request, full_document=False, short_empty_elements=True
+            )
+            result_text = await self._ajax_request("_cmdstat.jsp", request_xml, timeout=timeout)
+            page = parse_ajax_response(result_text)
+
+            elements = page.get(element_type) if isinstance(page, dict) else None
+            if elements is None:
+                break  # page has no elements of this type - we're done
+            if isinstance(elements, dict):
+                elements = [elements]
+            if target_type is not None:
+                elements = _restructure(target_type, elements)
+            results.extend(elements)
+            item_number += len(elements)
+
+            if len(results) >= limit:
+                break
+            if page.get("done") == "true":
+                break
+
+        return results[:limit]
 
     async def _request_file(
         self,

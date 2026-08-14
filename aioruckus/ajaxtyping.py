@@ -15,7 +15,14 @@ Radio = TypedDict('Radio', {
     "wlangroup-id": str,
     "channel-select": str,
     "enabled": str,
-    "channelization": str
+    "channelization": str,
+    "channel-width-group": str,
+    "channel-set": str,
+    "channel-indoor-select": str,
+    "channel-outdoor": str,
+    "channel-outdoor-select": str,
+    "auto-channel-set": str,
+    "mix-mode": str
 }, total=False)
 
 AdvMesh = TypedDict('AdvMesh', {
@@ -119,7 +126,11 @@ Ap = TypedDict('Ap', {
     "venue-names": str,
     "bonjourfencing": BonjourFencing,
     "lacp-state": str,
-    "cband-chann": str
+    "cband-chann": str,
+    "by-dhcp": str,
+    "oem-company": str,
+    "support-11be": str,
+    "wifi-band": str
 }, total=False)
 
 ApStatsIf = TypedDict('ApStatsIf', {
@@ -454,6 +465,8 @@ WlanWpa = TypedDict('WlanWpa', {
     "start-point": str,
     "shared-dpsk": str,
     "shared-dpsk-num": str,
+    "limit-dpsk": str,
+    "limit-dpsk-val": str,
 }, total=False)
 
 WlanQueuePriority = TypedDict('WlanQueuePriority', {
@@ -517,6 +530,8 @@ WlanUrlFilteringPolicy = TypedDict('WlanUrlFilteringPolicy', {
     "safesearchgoogle": WlanUrlFilteringSafeSearch,
     "safesearchyoutube": WlanUrlFilteringSafeSearch,
     "safesearchbing": WlanUrlFilteringSafeSearch,
+    "urlfiltering-enabled": str,
+    "urlfiltering-id": str,
 }, total=False)
 
 WlanDevicePolicyDevRule = TypedDict('WlanDevicePolicyDevRule', {
@@ -620,6 +635,19 @@ Wlan = TypedDict('Wlan', {
     "directed-mbc": str,
     "transient-client-mgnt": str,
     "close-system": str,
+    "allow-iot-connect": str,
+    "authsvr-id": str,
+    "auto-provisioning": str,
+    "create-time": str,
+    "guestservice-id": str,
+    "mac-addr-format": str,
+    "qos-mirroring": str,
+    "web-auth": str,
+    "wificalling-policy": dict,
+    "wlan-bind-24g": str,
+    "wlan-bind-5g": str,
+    "wlan-bind-6g": str,
+    "wlan_bind": str,
     "rrm": WlanRrm,
     "smartcast": WlanSmartcast,
     "avp-policy": WlanAvpPolicy,
@@ -792,7 +820,11 @@ WlanGroup = TypedDict('WlanGroup', {
 }, total=False)
 
 ApProperty = TypedDict('ApProperty', {
-    'radio': list[Radio]
+    'radio': list[Radio],
+    'network': dict,
+    'mesh': dict,
+    'chanfly': dict,
+    'bonjourfencing': BonjourFencing
 }, total=False)
 
 ApGroupMembers = TypedDict('ApGroupMembers', {
@@ -915,7 +947,8 @@ IpRule = TypedDict('IpRule', {
     'src-port': str,
     'dst-addr': str,
     'dst-port': str,
-    'icmp-type': str
+    'icmp-type': str,
+    'EDITABLE': str
 }, total=False)
 
 Ip4Policy = TypedDict('Ip4Policy', {
@@ -951,7 +984,7 @@ UrlSafeSearchDns = TypedDict('UrlSafeSearchDns', {
 }, total=False)
 
 UrlFilterDomain = TypedDict('UrlFilterDomain', {
-    'domain-name': str
+    'domain-name': Required[str]
 }, total=False)
 
 UrlFilter = TypedDict('UrlFilter', {
