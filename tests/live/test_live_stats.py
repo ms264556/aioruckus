@@ -1,8 +1,13 @@
 """Live-network tests against real ZoneDirector / Unleashed controllers.
 
 These tests exercise the read-only stats/configuration calls against live
-controllers. Credentials are read from environment variables, one set per
-provider; tests are skipped for any provider that isn't configured:
+controllers. They are marked ``live`` and deselected by default (see
+``addopts = "-m 'not live'"`` in ``pyproject.toml``), so a plain test run
+passes completely without access to live devices -- as required by distro
+builds / CI. Run them explicitly with ``pytest -m live``.
+
+Credentials are read from environment variables, one set per provider; tests
+are skipped for any provider that isn't configured:
 
     AIORUCKUS_LIVE_ZD_HOST / AIORUCKUS_LIVE_ZD_USERNAME / AIORUCKUS_LIVE_ZD_PASSWORD
     AIORUCKUS_LIVE_UNLEASHED_HOST / AIORUCKUS_LIVE_UNLEASHED_USERNAME / AIORUCKUS_LIVE_UNLEASHED_PASSWORD
@@ -21,6 +26,8 @@ from contextlib import asynccontextmanager
 import pytest
 
 from aioruckus.ajaxsession import AjaxSession
+
+pytestmark = pytest.mark.live
 
 
 def _controller(name: str, host, username, password) -> dict:

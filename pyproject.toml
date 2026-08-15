@@ -46,6 +46,13 @@ dev = [
 testpaths = [
     "tests",
 ]
+markers = [
+    "live: tests that require access to live Ruckus hardware; deselected by default (run explicitly with `pytest -m live`)",
+]
+# Live-device tests are deselected by default so a plain test run passes
+# completely without hardware access (distro builds / CI). Run them with
+# `pytest -m live`; unconfigured providers are still skipped via env vars.
+addopts = "-m 'not live'"
 
 [tool.pylint.main]
 load-plugins = ["pylint_pytest"]
