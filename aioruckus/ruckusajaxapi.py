@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import xml.etree.ElementTree as ET
 from typing import Any
 from xml.sax import saxutils
@@ -17,6 +18,7 @@ from .ajaxtyping import (
     DocmdResponse,
     Dpsk,
     Event,
+    Guest,
     L2Policy,
     Rogue,
     SystemInfo,
@@ -29,6 +31,8 @@ from .const import (
     ERROR_ACL_NOT_FOUND,
     ERROR_ACL_SYSTEM,
     ERROR_ACL_TOO_BIG,
+    ERROR_GUEST_PASS_BATCH_SIZE,
+    ERROR_GUEST_PASS_KEY,
     ERROR_INVALID_WLAN,
     ERROR_PASSPHRASE_MISSING,
     ERROR_PASSPHRASE_NAME,
@@ -49,6 +53,51 @@ def _coerce_stats_level(stats_level: StatsLevel | bool) -> StatsLevel:
     if isinstance(stats_level, bool):
         return StatsLevel.L3 if stats_level else StatsLevel.L1
     return stats_level
+
+
+def _parse_guest_list(xml: str) -> list[Guest]:
+    """Parse a guest-list getconf response into ``Guest`` dicts.
+
+    ZoneDirector and Unleashed both serve guest passes via a ``getconf``
+    resultset whose attributes use ``full-name`` / ``wlan`` instead of
+    ``name`` / ``ssid`` and may carry the pass key as ``x-key`` (possibly
+    duplicated as a plain ``key``); normalize to the shared ``Guest`` shape.
+    """
+    guests = []
+    for guest in ET.fromstring(xml).findall(".//guest"):
+        item = dict(guest.attrib)
+        if "name" not in item and "full-name" in item:
+            item["name"] = item.pop("full-name")
+        else:
+            item.pop("full-name", None)  # redundant duplicate of name
+        if "ssid" not in item and "wlan" in item:
+            item["ssid"] = item.pop("wlan")
+        else:
+            item.pop("wlan", None)  # redundant duplicate of ssid
+        if "x-key" in item:
+            # rename to key like the other x-* attributes; a plain ``key``
+            # duplicate (if any) is dropped by the rename
+            item["key"] = item.pop("x-key")
+        guests.append(item)
+    return guests
+
+
+def _zd_guest_from_json(data: dict[str, Any]) -> Guest:
+    """Build a ``Guest`` from a ``mon_createguest.jsp`` response."""
+
+    def _clean(value: Any) -> str:
+        return "" if value in (None, "null") else str(value)
+
+    return {
+        "key": _clean(data.get("key")),
+        "name": _clean(data.get("fullname")),
+        "ssid": _clean(data.get("wlan")),
+        "expire-time": _clean(data.get("expiretime")),
+        "email": _clean(data.get("emailaddr")),
+        "phone-number": _clean(data.get("phonenumber")),
+        "duration": _clean(data.get("duration")),
+        "duration-unit": _clean(data.get("duration_unit")),
+    }
 
 
 class RuckusAjaxApi(RuckusConfigurationApi):
@@ -171,6 +220,207 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
             "<dpsklist /></ajax-request>", target_type=list[Dpsk]
+        )
+
+    async def _zd_create_guest_form(
+        self,
+        *,
+        gentype: str,
+        fullname: str,
+        key: str,
+        create_to_num: str,
+        batchpass: str,
+        ssid: str,
+        duration: int,
+        duration_unit: str,
+        email: str,
+        country_code: str,
+        phone_number: str,
+        share_number: int,
+        remarks: str,
+        reauth_enabled: bool,
+        reauth_interval: str,
+        reauth_interval_unit: str,
+    ) -> dict[str, Any]:
+        """POST a ``mon_createguest.jsp`` form and return the JSON.
+
+        The controllers always create shared passes (the web UI hardcodes
+        ``shared:!0``) and leave ``batchpass`` empty for multiple gentype,
+        so the form is fixed accordingly.
+        """
+        form: dict[str, str] = {
+            "gentype": gentype,
+            "fullname": fullname,
+            "remarks": remarks,
+            "duration": str(duration),
+            "duration-unit": duration_unit,
+            "key": key,
+            "createToNum": create_to_num,
+            "batchpass": batchpass,
+            "guest-wlan": ssid,
+            "shared": "true",
+            "reauth": str(reauth_enabled).lower(),
+            "reauth-time": reauth_interval,
+            "reauth-unit": reauth_interval_unit,
+            "email": email,
+            "countrycode": country_code,
+            "phonenumber": phone_number,
+            "limitnumber": str(share_number),
+        }
+        assert self.__session is not None
+        data = await self.__session.mon_createguest(form)
+        if data.get("result") not in ("DONE", "OK"):
+            raise ValueError(data.get("errorMsg") or data.get("result"))
+        return data
+
+    async def get_guest_passes(self) -> list[Guest]:
+        """Return a list of guest passes"""
+        ts = ruckus_timestamp()
+        return _parse_guest_list(await self._conf_noparse(
+            f"<ajax-request action='getconf' DECRYPT_X='true' "
+            f"updater='guest-list.{ts}' comp='guest-list'>"
+            f"<guest self-service='!true'/></ajax-request>"
+        ))
+
+    async def do_add_guest_passes(
+        self,
+        ssid: str,
+        duration: int = 1,
+        duration_unit: str = "day",
+        batch_size: int = 2,
+        name: str = "",
+        shared: bool = False,
+        share_number: int = 1,
+        reauth_enabled: bool = False,
+        reauth_interval: str = "",
+        reauth_interval_unit: str = "min",
+        email: str = "",
+        country_code: str = "",
+        phone_number: str = "",
+        remarks: str = "",
+    ) -> list[Guest]:
+        """Create a batch of guest passes on ``ssid`` and return the created passes.
+
+        Passes are created via the ``mon_createguest.jsp`` form endpoint.
+        The controller generates the pass keys and batch names itself and
+        requires a non-empty ``ssid`` and a ``batch_size`` between 2 and
+        100. ``name`` and ``shared`` are accepted for API compatibility but
+        ignored: the controllers always create shared passes and
+        auto-generate the batch names.
+        """
+        if not 2 <= batch_size <= 100:
+            raise ValueError(ERROR_GUEST_PASS_BATCH_SIZE)
+        before = {guest["key"] for guest in await self.get_guest_passes()}
+        await self._zd_create_guest_form(
+            gentype="multiple",
+            fullname="",
+            key="",
+            create_to_num=str(batch_size),
+            batchpass="",
+            ssid=ssid,
+            duration=duration,
+            duration_unit=duration_unit,
+            email=email,
+            country_code=country_code,
+            phone_number=phone_number,
+            share_number=share_number,
+            remarks=remarks,
+            reauth_enabled=reauth_enabled,
+            reauth_interval=reauth_interval,
+            reauth_interval_unit=reauth_interval_unit,
+        )
+        # the batch response does not enumerate the created keys; re-list
+        # and return the passes that did not exist before the create
+        return [
+            guest for guest in await self.get_guest_passes()
+            if guest.get("key") not in before
+        ]
+
+    async def do_add_guest_pass(
+        self,
+        ssid: str,
+        name: str = "",
+        x_key: str | None = None,
+        duration: int = 1,
+        duration_unit: str = "day",
+        shared: bool = False,
+        share_number: int = 1,
+        reauth_enabled: bool = False,
+        reauth_interval: str = "",
+        reauth_interval_unit: str = "min",
+        email: str = "",
+        country_code: str = "",
+        phone_number: str = "",
+        remarks: str = "",
+    ) -> Guest:
+        """Create a single guest pass on ``ssid`` and return it.
+
+        Pass a custom ``x_key`` (2-16 characters; no whitespace, #, &, +,
+        ", ', <, > or comma) to use it directly; otherwise a key is
+        requested from ``mon_guestdata.jsp`` and the pass is created via
+        ``mon_createguest.jsp``. Keys are uppercased by the controller. A
+        non-empty ``ssid`` is required and duplicate pass names are
+        rejected. ``shared`` is accepted for API compatibility but ignored:
+        the controllers always create shared passes.
+        """
+        if x_key is None:
+            assert self.__session is not None
+            key_text = await self.__session._ajax_request("mon_guestdata.jsp", {}, form=True)
+            json_start = key_text.find("{")
+            key_data = json.loads(key_text[json_start:]) if json_start >= 0 else {}
+            x_key = key_data.get("key") or ""
+            if not x_key:
+                raise ValueError(ERROR_GUEST_PASS_KEY)
+        else:
+            x_key = validate_guest_key(x_key).upper()
+        data = await self._zd_create_guest_form(
+            gentype="single",
+            fullname=name,
+            key=x_key,
+            create_to_num="",
+            batchpass="",
+            ssid=ssid,
+            duration=duration,
+            duration_unit=duration_unit,
+            email=email,
+            country_code=country_code,
+            phone_number=phone_number,
+            share_number=share_number,
+            remarks=remarks,
+            reauth_enabled=reauth_enabled,
+            reauth_interval=reauth_interval,
+            reauth_interval_unit=reauth_interval_unit,
+        )
+        # complete the guest (id, create-time, ...) from the list
+        for guest in await self.get_guest_passes():
+            if guest.get("key") == x_key:
+                return guest
+        return _zd_guest_from_json(data)
+
+    async def do_remove_guest_passes(self, *keys: str) -> None:
+        """Remove guest passes by their keys.
+
+        The controllers' delete commands only honour the internal pass
+        ``id`` (a delete keyed by ``key`` reports success but removes
+        nothing), so each key is resolved to its id via the guest list
+        before a ``delobj`` on ``guest-list`` is issued.
+        """
+        if not keys:
+            return
+        key_set = set(keys)
+        guests = await self.get_guest_passes()
+        missing = [key for key in keys if key not in {g.get("key") for g in guests}]
+        if missing:
+            raise ValueError(f"Guest pass key(s) not found: {', '.join(missing)}")
+        ids = [
+            gid for gid in (g.get("id") for g in guests if g.get("key") in key_set)
+            if gid
+        ]
+        ts = ruckus_timestamp()
+        payload = ''.join(f"<guest id='{guest_id}'></guest>" for guest_id in ids)
+        await self._conf_noparse(
+            f"<ajax-request action='delobj' updater='guest-list.{ts}' comp='guest-list'>"
+            f"{payload}</ajax-request>"
         )
 
     async def get_active_rogues(self) -> list[Rogue]:

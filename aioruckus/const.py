@@ -24,6 +24,9 @@ ERROR_PASSPHRASE_NAME = "You must also provide a name if you wish to override th
 ERROR_ACL_NOT_FOUND = "ACL not found"
 ERROR_ACL_TOO_BIG = "ACLs may only contain 128 stations"
 ERROR_ACL_SYSTEM = "Please use do_block_client() and do_unblock_client() to modify the System ACL"
+ERROR_GUEST_PASS_BATCH_SIZE = "Guest pass batch size must be between 2 and 100"
+ERROR_GUEST_PASS_KEY = "Failed to generate a guest key"
+ERROR_GUEST_PASS_KEY_INVALID = "The key can only contain between 2 and 16 characters, and cannot contain whitespace, #, &, +, \", ', <, >, or comma (,)."
 
 class SystemStat(Enum):
     """Ruckus System Info section keys"""

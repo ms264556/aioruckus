@@ -64,6 +64,19 @@ async def test_shims_reject_base_ajax_session_helpers(session_fixture, request):
 
 
 @pytest.mark.parametrize("session_fixture", ["create_r1_session", "create_sz_session"])
+async def test_shims_reject_guest_pass_methods(session_fixture, request):
+    """Guest-pass methods are unsupported on the shims."""
+    async with request.getfixturevalue(session_fixture)() as session:
+        api = session.api
+        with pytest.raises(NotImplementedError):
+            await api.get_guest_passes()
+        with pytest.raises(NotImplementedError):
+            await api.do_add_guest_passes(ssid="Test")
+        with pytest.raises(NotImplementedError):
+            await api.do_remove_guest_passes("123456")
+
+
+@pytest.mark.parametrize("session_fixture", ["create_r1_session", "create_sz_session"])
 async def test_shims_get_system_info_and_mesh(session_fixture, request):
     """Shim system/mesh info still resolves through their own sessions."""
     async with request.getfixturevalue(session_fixture)() as session:

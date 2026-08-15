@@ -1080,6 +1080,38 @@ Dpsk = TypedDict('Dpsk', {
     'role': Role
 }, total=False)
 
+Guest = TypedDict('Guest', {
+    # The pass key shown on vouchers. Unlike other ``x-`` prefixed
+    # attributes, ``x-key`` is a plain value (not an obfuscated passphrase),
+    # so the AJAX parser renames it to ``key`` but keeps the value verbatim.
+    "key": Required[str],
+    "id": str,
+    "name": str,
+    "ssid": str,
+    "created-by": str,
+    "create-time": str,
+    "valid-time": str,
+    "start-time": str,
+    "expire-time": str,
+    "email": str,
+    "phone-number": str,
+    "country-code": str,
+    "shared-guestpass": str,
+    "share-number": str,
+    "reauth-enabled": str,
+    "reauth-interval": str,
+    "reauth-interval-unit": str,
+    "remarks": str,
+    "role-id": str,
+    "countdown-by-issued": str,
+    "duration": str,
+    "duration-unit": str,
+    "batch-size": str,
+    "gentype": str,
+    "ADDED": str,
+    "UPD-APID": str,
+}, total=False)
+
 L2Rule = TypedDict('L2Rule', {
     'mac': Required[str],
     'type': Literal['single'],

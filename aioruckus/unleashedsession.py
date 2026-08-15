@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import xml.etree.ElementTree as ET
 
@@ -223,19 +224,25 @@ class UnleashedSession:
     async def _ajax_request(
         self,
         cmd: str,
-        data: str,
+        data: str | dict[str, str],
         *,
         timeout: aiohttp.ClientTimeout | int | None = None,
         retrying: bool = False,
+        form: bool = False,
     ) -> str:
-        """Request data from an AJAX endpoint"""
+        """Request data from an AJAX endpoint.
+
+        ``data`` is an XML string sent as ``text/xml``, or — when ``form``
+        is True — a mapping url-encoded like an HTML form (used by the
+        guest-pass ``mon_guestdata.jsp`` / ``mon_createguest.jsp`` JSPs).
+        """
         if not self.base_url:
             raise RuntimeError(ERROR_NO_SESSION)
 
         async with self.__client.post(
             self.base_url / cmd,
             data=data,
-            headers={"Content-Type": "text/xml"},
+            headers=None if form else {"Content-Type": "text/xml"},
             timeout=cast_timeout(timeout),
             allow_redirects=False,
         ) as response:
@@ -246,12 +253,27 @@ class UnleashedSession:
                     # changed?
                     raise AuthenticationError(ERROR_POST_REDIRECTED)
                 await self.login()  # try logging in again, then retry post
-                return await self._ajax_request(cmd, data, timeout=timeout, retrying=True)
+                return await self._ajax_request(
+                    cmd, data, timeout=timeout, retrying=True, form=form
+                )
             result_text = await response.text(errors="replace")
             if not result_text or result_text == "\n":
-                # if the ajax request payload wasn't understood then we get an empty page back
+                # if the request payload wasn't understood then we get an empty page back
                 raise RuntimeError(ERROR_POST_NORESULT)
             return result_text
+
+    async def mon_createguest(self, data: dict[str, str]) -> dict[str, Any]:
+        """Create guest passes via ``mon_createguest.jsp`` and return its JSON.
+
+        The response may be prefixed with script lines (``batchEmailData.
+        push(...)`` etc.) before the JSON payload, so parsing starts at the
+        first ``{``.
+        """
+        text = await self._ajax_request("mon_createguest.jsp", data, form=True)
+        json_start = text.find("{")
+        if json_start < 0:
+            raise ValueError(text.strip() or "Guest pass creation failed")
+        return json.loads(text[json_start:])
 
     @staticmethod
     def _get_filter_object(
