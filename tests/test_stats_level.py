@@ -59,11 +59,32 @@ async def test_active_clients_interval_stats_true(create_ajax_session, set_ajax_
 
 
 @pytest.mark.asyncio
+async def test_active_clients_interval_stats_keyword_true(create_ajax_session, set_ajax_results):
+    """Legacy interval_stats keyword True requests interval stats (L3)."""
+    async with create_ajax_session() as session:
+        set_ajax_results(1)
+        clients = await session.api.get_active_clients(interval_stats=True)
+        assert len(clients) == 1
+        assert "interval-stats" in clients[0]
+
+
+@pytest.mark.asyncio
 async def test_active_clients_interval_stats_false(create_ajax_session, set_ajax_results):
     """Legacy boolean False requests basic stats (L1)."""
     async with create_ajax_session() as session:
         set_ajax_results(1)
         clients = await session.api.get_active_clients(False)
+        assert len(clients) == 1
+        assert "avg-rssi" not in clients[0]
+        assert "interval-stats" not in clients[0]
+
+
+@pytest.mark.asyncio
+async def test_active_clients_interval_stats_keyword_false(create_ajax_session, set_ajax_results):
+    """Legacy interval_stats keyword False requests basic stats (L1)."""
+    async with create_ajax_session() as session:
+        set_ajax_results(1)
+        clients = await session.api.get_active_clients(interval_stats=False)
         assert len(clients) == 1
         assert "avg-rssi" not in clients[0]
         assert "interval-stats" not in clients[0]
@@ -123,11 +144,32 @@ async def test_ap_stats_interval_stats_true(create_ajax_session, set_ajax_result
 
 
 @pytest.mark.asyncio
+async def test_ap_stats_interval_stats_keyword_true(create_ajax_session, set_ajax_results):
+    """Legacy interval_stats keyword True requests interval stats (L3)."""
+    async with create_ajax_session() as session:
+        set_ajax_results(1)
+        aps = await session.api.get_ap_stats(interval_stats=True)
+        assert len(aps) == 1
+        assert "interval-stats" in aps[0]
+
+
+@pytest.mark.asyncio
 async def test_ap_stats_interval_stats_false(create_ajax_session, set_ajax_results):
     """Legacy boolean False requests basic stats (L1)."""
     async with create_ajax_session() as session:
         set_ajax_results(1)
         aps = await session.api.get_ap_stats(False)
+        assert len(aps) == 1
+        assert "vap" not in aps[0]
+        assert "interval-stats" not in aps[0]
+
+
+@pytest.mark.asyncio
+async def test_ap_stats_interval_stats_keyword_false(create_ajax_session, set_ajax_results):
+    """Legacy interval_stats keyword False requests basic stats (L1)."""
+    async with create_ajax_session() as session:
+        set_ajax_results(1)
+        aps = await session.api.get_ap_stats(interval_stats=False)
         assert len(aps) == 1
         assert "vap" not in aps[0]
         assert "interval-stats" not in aps[0]

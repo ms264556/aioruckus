@@ -133,6 +133,9 @@ class AioResponsesMock:
     def get(self, pattern, status=200, headers=None, body="", payload=None, exception=None, callback=None, repeat=True):
         self.add_route("get", pattern, status, headers, body, payload, exception, callback)
 
+    def delete(self, pattern, status=200, headers=None, body="", payload=None, exception=None, callback=None, repeat=True):
+        self.add_route("delete", pattern, status, headers, body, payload, exception, callback)
+
     def add_route(self, method, pattern, status=200, headers=None, body="", payload=None, exception=None, callback=None):
         self.routes.append({
             "method": method.lower(),

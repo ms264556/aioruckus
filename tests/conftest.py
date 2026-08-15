@@ -106,6 +106,89 @@ def aiohttp_context():
             payload={'name': 'dummy_tenant', 'entitlementId': 'ee8771514cca2a7a'},
             repeat=True,
         )
+        # Ruckus One AP list (GET venues/aps is used by get_ap_stats)
+        m.get(
+            re.compile(r"^https://api\.(?:eu\.|asia\.)ruckus\.cloud/venues/aps$"),
+            payload=[
+                {'macAddress': '8c:7a:15:3e:21:d0', 'serialNumber': '302139502811', 'name': 'AnR650', 'firmware': '6.2.4.103.259'},
+                {'macAddress': '80:03:84:3f:88:d0', 'serialNumber': '502039500072', 'name': 'My Second R650', 'firmware': '6.2.4.103.259'},
+            ],
+            repeat=True,
+        )
+        m.post(
+            re.compile(r"^https://api\.(?:eu\.|asia\.)ruckus\.cloud/wifiNetworks/query$"),
+            payload={
+                'data': [
+                    {'id': 'wlan-1', 'name': 'MyWiFi', 'ssid': 'MyWiFi'},
+                ],
+                'totalCount': 1,
+            },
+            repeat=True,
+        )
+        # SmartZone login flow
+        m.get(
+            re.compile(r"^https://192\.168\.0\.3:8443/wsg/api/public/apiInfo$"),
+            payload={'apiSupportVersions': ['v9_0']},
+            repeat=True,
+        )
+        m.post(
+            re.compile(r"^https://192\.168\.0\.3:8443/wsg/api/public/v9_0/serviceTicket$"),
+            payload={'serviceTicket': 'dummy_ticket', 'controllerVersion': '5.2.1.0.123'},
+            repeat=True,
+        )
+        m.get(
+            re.compile(r"^https://192\.168\.0\.3:8443/wsg/api/public/v9_0/userGroups/currentUser/permissionCategories"),
+            payload={'list': [{'resource': 'AP_CATEGORY', 'access': 'FULL_ACCESS'}]},
+            repeat=True,
+        )
+        m.get(
+            re.compile(r"^https://192\.168\.0\.3:8443/wsg/api/public/v9_0/session"),
+            payload={'domainId': 'some-domain', 'cpId': 'cp-1', 'name': 'my-sz'},
+            repeat=True,
+        )
+        # SmartZone logout on close()
+        m.delete(
+            re.compile(r"^https://192\.168\.0\.3:8443/wsg/api/public/v9_0/serviceTicket"),
+            status=204,
+            repeat=True,
+        )
+        # SmartZone queries (query() POSTs with page/limit in the body)
+        m.post(
+            re.compile(r"^https://192\.168\.0\.3:8443/wsg/api/public/v9_0/query/ap"),
+            payload={
+                'list': [{'apMac': '8c:7a:15:3e:21:d0', 'deviceName': 'AnR650', 'firmwareVersion': '5.2.1.0.123', 'serial': '302139502811'}],
+                'hasMore': False,
+                'totalCount': 1,
+            },
+            repeat=True,
+        )
+        m.post(
+            re.compile(r"^https://192\.168\.0\.3:8443/wsg/api/public/v9_0/query/client"),
+            payload={
+                'list': [{'clientMac': 'f0:1d:ab:ad:d0:0d', 'ipAddress': '192.168.0.23', 'apMac': '8c:7a:15:3e:21:d0', 'hostname': 'MySmartPhone'}],
+                'hasMore': False,
+                'totalCount': 1,
+            },
+            repeat=True,
+        )
+        m.post(
+            re.compile(r"^https://192\.168\.0\.3:8443/wsg/api/public/v9_0/query/wlan"),
+            payload={
+                'list': [{'wlanId': 'wlan-1', 'name': 'MyWiFi'}],
+                'hasMore': False,
+                'totalCount': 1,
+            },
+            repeat=True,
+        )
+        m.post(
+            re.compile(r"^https://192\.168\.0\.3:8443/wsg/api/public/v9_0/blockClient/query"),
+            payload={
+                'list': [{'mac': 'f0:1d:ab:ad:d0:0d', 'zones': [{'id': 'z1', 'zoneId': 'z1'}]}],
+                'hasMore': False,
+                'totalCount': 1,
+            },
+            repeat=True,
+        )
         yield m
 
 
@@ -115,6 +198,14 @@ def create_r1_session():
         return AjaxSession.async_create("https://asia.ruckus.cloud/5dd1000334cc2a01fcf28a740a6c95cf/t/dashboard", "0206ee8771514cca2a7a2f2d144c80f0", "ce97e150e2362f1b07d6c4f6a32934d2")
 
     return _create_r1_session
+
+
+@pytest.fixture
+def create_sz_session():
+    def _create_sz_session():
+        return AjaxSession.async_create("192.168.0.3:8443", "admin", "sp-admin")
+
+    return _create_sz_session
 
 
 @pytest.fixture

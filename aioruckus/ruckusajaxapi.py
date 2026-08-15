@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime
 import xml.etree.ElementTree as ET
-from typing import Any, overload
+from typing import Any
 from xml.sax import saxutils
 
 from .abcsession import ConfigItem
@@ -99,14 +99,10 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         )
         return sysinfo
 
-    @overload
-    async def get_active_clients(self, stats_level: StatsLevel = StatsLevel.L1) -> list[Client]: ...
-
-    @overload
-    async def get_active_clients(self, interval_stats: bool) -> list[Client]: ...
-
     async def get_active_clients(
-        self, stats_level: StatsLevel | bool = StatsLevel.L1
+        self,
+        stats_level: StatsLevel | bool = StatsLevel.L1,
+        interval_stats: bool | None = None,
     ) -> list[Client]:
         """Return a list of active clients
 
@@ -115,20 +111,24 @@ class RuckusAjaxApi(RuckusConfigurationApi):
                 (interval stats). A boolean is accepted for backwards
                 compatibility: True requests interval stats (L3), False
                 requests basic stats (L1).
+            interval_stats: deprecated legacy keyword (the pre-``stats_level``
+                parameter name); True requests interval stats (L3), False
+                requests basic stats (L1). Takes precedence over
+                ``stats_level`` when both are provided.
         """
+        if interval_stats is not None:
+            stats_level = interval_stats
         return await self._get_entity_stats("client", _coerce_stats_level(stats_level), list[Client])
 
     async def get_inactive_clients(self) -> list[Client]:
         """Return a list of inactive clients"""
         return await self.cmdstat("<ajax-request action='getstat' comp='stamgr' enable-gzip='0'><clientlist period='0' /></ajax-request>", target_type=list[Client])
 
-    @overload
-    async def get_ap_stats(self, stats_level: StatsLevel = StatsLevel.L1) -> list[ApStats]: ...
-
-    @overload
-    async def get_ap_stats(self, interval_stats: bool) -> list[ApStats]: ...
-
-    async def get_ap_stats(self, stats_level: StatsLevel | bool = StatsLevel.L1) -> list[ApStats]:
+    async def get_ap_stats(
+        self,
+        stats_level: StatsLevel | bool = StatsLevel.L1,
+        interval_stats: bool | None = None,
+    ) -> list[ApStats]:
         """Return a list of AP statistics
 
         Args:
@@ -136,7 +136,13 @@ class RuckusAjaxApi(RuckusConfigurationApi):
                 (interval stats). A boolean is accepted for backwards
                 compatibility: True requests interval stats (L3), False
                 requests basic stats (L1).
+            interval_stats: deprecated legacy keyword (the pre-``stats_level``
+                parameter name); True requests interval stats (L3), False
+                requests basic stats (L1). Takes precedence over
+                ``stats_level`` when both are provided.
         """
+        if interval_stats is not None:
+            stats_level = interval_stats
         return await self._get_entity_stats("ap", _coerce_stats_level(stats_level), list[ApStats])
 
     async def get_ap_group_stats(self) -> list[ApGroup]:
