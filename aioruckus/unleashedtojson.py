@@ -64,6 +64,7 @@ class _Plan(NamedTuple):
 
     is_list: bool
     specs: tuple[_FieldSpec, ...]
+    fields: frozenset[str] = frozenset()  # all declared field names
 
 
 # --- Type Inspection Logic ---
@@ -77,6 +78,13 @@ def _extract_type_info(hint: Any) -> _TypeInfo:
     Unpacks complex types like `List[Union[DictA, DictB]]` to find the
     underlying TypedDicts.
     """
+    # Bare `list` / `dict` (no subscription) are valid target types: they
+    # mean "array" / "plain dict" passthrough, with no field specs.
+    if hint is list:
+        return _TypeInfo(is_list=True, types=[])
+    if hint is dict:
+        return _TypeInfo(is_list=False, types=[])
+
     # get_origin returns the base class (e.g., `list` from `list[int]`)
     origin = get_origin(hint)
 
@@ -163,7 +171,11 @@ def _compile_plan(target_type: type) -> _Plan:
                 )
             )
 
-    return _Plan(is_list=root_info.is_list, specs=tuple(specs))
+    return _Plan(
+        is_list=root_info.is_list,
+        specs=tuple(specs),
+        fields=frozenset(get_type_hints(schema_type)),
+    )
 
 
 # --- Data Restructuring Logic ---
@@ -252,6 +264,34 @@ def parse_ajax_response(xml: str, target_type: type[D]) -> D: ...
 def parse_ajax_response(xml: str) -> dict | list[dict]: ...
 
 
+def _unwrap_object_response(result: Any) -> Any:
+    """Navigate the Ruckus ``type="object"`` wrapper to the payload.
+
+    The ``id`` usually names the key holding the actual data (e.g. an
+    updater tag like ``stamgr.…`` or a payload key like ``ap-list.…``);
+    older controllers sometimes omit it, and docmd responses carry the
+    payload directly (``xmsg``) with only a session-tag id.
+    """
+    if not isinstance(result, dict) or result.get("type") != "object":
+        return result
+    if "id" in result:
+        payload_key = result["id"].split(".")[0]
+        if payload_key == "stamgr":
+            # Specific handling for 'stamgr' (Station Manager) data
+            return result.get("apstamgr-stat")
+        if payload_key in result:
+            # Generic handling: find the key that matches the ID
+            return result[payload_key]
+    for key in ("response", "apstamgr-stat"):
+        if key in result:
+            # 'response' is the common wrapper; 'apstamgr-stat' covers the
+            # session-tag ids (e.g. 'DEH') and older controllers without an id
+            return result[key]
+    # 'type' is only a marker on these responses; drop it so the
+    # generic single-key unwrap below can reach the payload
+    return {k: v for k, v in result.items() if k != "type"}
+
+
 def parse_ajax_response(
     xml: str, target_type: type[D] | None = None
 ) -> D | dict | list[dict]:
@@ -271,35 +311,19 @@ def parse_ajax_response(
     except KeyError as kerr:
         raise SchemaError(ERROR_POST_BADRESULT) from kerr
 
-    if isinstance(result, dict) and result.get("type") == "object":
-        # The 'id' usually tells us which key holds the actual data
-        if "id" in result:
-            payload_key = result["id"].split(".")[0]
-
-            if payload_key == "stamgr":
-                # Specific handling for 'stamgr' (Station Manager) data
-                result = result.get("apstamgr-stat")
-            elif payload_key in result:
-                # Generic handling: find the key that matches the ID
-                result = result[payload_key]
-            elif "response" in result:
-                result = result["response"]
-            elif "apstamgr-stat" in result:
-                # The id is only a session tag (e.g. 'DEH'), not a payload
-                # key; fall back to the common stats wrapper
-                result = result["apstamgr-stat"]
-        elif "apstamgr-stat" in result:
-            # Older controllers don't always include an 'id'
-            result = result["apstamgr-stat"]
-        else:
-            # 'type' is only a marker on these responses; drop it so the
-            # generic single-key unwrap below can reach the payload
-            result = {k: v for k, v in result.items() if k != "type"}
+    result = _unwrap_object_response(result)
 
     # Generic: unwrap any single-key wrapper — the <xxx-list> collection
-    # root used by getconf/backup configs, and single-item list fixups
+    # root used by getconf/backup configs, and single-item list fixups.
+    # But if that single key is a declared field of the target TypedDict
+    # (e.g. a lone <sysinfo> or <time> section), keep it wrapped so
+    # _restructure can apply the field's own conversion to its value.
+    plan = _compile_plan(target_type) if target_type is not None else None
     while isinstance(result, dict) and len(result) == 1:
-        value = next(iter(result.values()))
+        key = next(iter(result))
+        if plan is not None and key in plan.fields:
+            break
+        value = result[key]
         if value is not None and not isinstance(value, (dict, list)):
             break
         result = value

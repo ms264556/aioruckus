@@ -1101,3 +1101,87 @@ Mesh = TypedDict('Mesh', {
     'name': Required[str],
     'psk': str
 }, total=False)
+
+# --- AJAX command/stat payloads (cmdstat fallback cases) ---
+
+SystemIdentity = TypedDict('SystemIdentity', {
+    "name": str,
+    "domain": str,
+}, total=False)
+
+SystemPort = TypedDict('SystemPort', {
+    "name": str,
+    "mac": str,
+    "ip": str,
+    "broadcast": str,
+    "netmask": str,
+    "ipv6": dict,
+    "prefixlength": str,
+}, total=False)
+
+SystemUnleashedNetwork = TypedDict('SystemUnleashedNetwork', {
+    "unleashed-network-token": str,
+}, total=False)
+
+Sysinfo = TypedDict('Sysinfo', {
+    "uptime": str,
+    "version": str,
+    "version-num": str,
+    "build-num": str,
+    "model": str,
+    "display-model": str,
+    "uuid": str,
+    "serial": str,
+    "maxap": str,
+    "max_connect_ap": str,
+    "mac": str,
+    "mem_total": str,
+    "mem_free": str,
+    "cpu_busy": str,
+    "cpu_total": str,
+    "cpu_core": str,
+    "poe-mode": str,
+    "poe-mode-str": str,
+    "current-version-num": str,
+    "available-version-num": str,
+}, total=False)
+
+SystemInfo = TypedDict('SystemInfo', {
+    "identity": SystemIdentity,
+    "sysinfo": Sysinfo,
+    "port": SystemPort,
+    "unleashed-network": SystemUnleashedNetwork,
+    "admin": dict,
+    "cluster": dict,
+    "mesh-policy": dict,
+    "mgmt-ip": dict,
+    "mgmt-vlan": dict,
+    "time": dict,
+}, total=False)
+
+TimeAttrs = TypedDict('TimeAttrs', {
+    "by-ntp": str,
+    "time": str,
+    "ntp1": str,
+    "daylight-saving": str,
+    "timezone": str,
+    "tzString": str,
+    "timezone-str": str,
+    "display-time": str,
+    "is-daylight-saving-time": str,
+}, total=False)
+
+TimeInfo = TypedDict('TimeInfo', {
+    "time": TimeAttrs,
+}, total=False)
+
+Xmsg = TypedDict('Xmsg', {
+    "type": str,
+    "msg": str,
+    "res": str,
+    "lmsg": str,
+}, total=False)
+
+DocmdResponse = TypedDict('DocmdResponse', {
+    "xmsg": Xmsg,
+}, total=False)

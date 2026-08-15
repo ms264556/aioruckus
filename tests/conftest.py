@@ -137,6 +137,13 @@ def unleashed_callback_factory(child_count):
                 '<ap mac="80:03:84:3f:88:d0" devname="My Second R650" model="r650" serial="502039500072" version="200.14.6.1"></ap>',
             ]
             content = f"<ap-list>{''.join(_aps[:child_count])}</ap-list>"
+        elif data == "<ajax-request action='getconf' DECRYPT_X='true' updater='system.0.5' comp='system'/>":
+            content = (
+                '<system><identity name="Ruckus-Unleashed" />'
+                '<sysinfo version="200.14.6.1 build 203" serial="212339000715" />'
+                '<unleashed-network unleashed-network-token="un2123390007151720757648426" />'
+                "</system>"
+            )
         elif data == "<ajax-request action='getstat' comp='system'><sysinfo/></ajax-request>":
             content = '<response><sysinfo version="200.14.6.1 build 203" serial="212339000715" /></response>'
         elif data.startswith("<ajax-request action='getstat' comp='system'>"):
@@ -152,13 +159,55 @@ def unleashed_callback_factory(child_count):
                 '<client mac="0a:23:ab:ad:d0:0d" ap="80:03:84:3f:88:d0" ip="192.168.0.24" hostname="LaptopComputer" />',
             ]
             content = f"<apstamgr-stat>{''.join(_clients[:child_count])}</apstamgr-stat>"
+        elif data.startswith("<ajax-request action='getstat' updater='system.") and "<time/>" in data:
+            # Timestamp query used by _get_timestamp_at_controller (Level 3 stats)
+            content = '<response><time by-ntp="true" time="1000000000" /></response>'
+        elif data == "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'><client LEVEL='2' /></ajax-request>":
+            _clients_l2 = [
+                '<client mac="f0:1d:ab:ad:d0:0d" ap="8c:7a:15:3e:21:d0" ip="192.168.0.23" hostname="MySmartPhone" avg-rssi="-50" total-rx-bytes="1234" />',
+            ]
+            content = f"<apstamgr-stat>{''.join(_clients_l2[:child_count])}</apstamgr-stat>"
+        elif data.startswith("<ajax-request action='getstat' comp='stamgr' enable-gzip='0'><client INTERVAL-STATS='yes'"):
+            _clients_l3 = [
+                '<client mac="f0:1d:ab:ad:d0:0d" ap="8c:7a:15:3e:21:d0" ip="192.168.0.23" hostname="MySmartPhone">'
+                '<interval-stats><stats time="100" tx-bytes="1" rx-bytes="2" /></interval-stats></client>',
+            ]
+            content = f"<apstamgr-stat>{''.join(_clients_l3[:child_count])}</apstamgr-stat>"
+        elif data == "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'><ap LEVEL='1' /></ajax-request>":
+            _aps = [
+                '<ap mac="8c:7a:15:3e:21:d0" devname="AnR650" model="r650" serial="302139502811" version="200.14.6.1" />',
+            ]
+            content = f"<apstamgr-stat>{''.join(_aps[:child_count])}</apstamgr-stat>"
+        elif data == "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'><ap LEVEL='2' /></ajax-request>":
+            _aps_l2 = [
+                '<ap mac="8c:7a:15:3e:21:d0" devname="AnR650" model="r650" serial="302139502811">'
+                '<vap><vap-item if-name="wlan0" /></vap></ap>',
+            ]
+            content = f"<apstamgr-stat>{''.join(_aps_l2[:child_count])}</apstamgr-stat>"
+        elif data.startswith("<ajax-request action='getstat' comp='stamgr' enable-gzip='0'><ap INTERVAL-STATS='yes'"):
+            _aps_l3 = [
+                '<ap mac="8c:7a:15:3e:21:d0" devname="AnR650" model="r650" serial="302139502811">'
+                '<interval-stats><stats time="100" tx-bytes="1" /></interval-stats></ap>',
+            ]
+            content = f"<apstamgr-stat>{''.join(_aps_l3[:child_count])}</apstamgr-stat>"
         elif data == '<ajax-request action="getstat" comp="cluster"/>' and "cluster" in url.host:
             if "standby" in url.host:
                 content = '<response><xmsg to-state="1" peer-state="0" ip="192.168.0.5" peer-ip="192.168.0.6" mgmt-ip="192.168.0.7" /></response>'
             else:
                 content = '<response><xmsg to-state="0" peer-state="1" ip="192.168.0.5" peer-ip="192.168.0.6" mgmt-ip="192.168.0.7" /></response>'
+        elif data.startswith("<ajax-request action='docmd' xcmd='get-syslog'"):
+            # docmd get-syslog: xmsg carries the log in `res`
+            content = '<xmsg type="0" msg="" res="Aug 15 03:59:49 RuckusAP syslogd: restart" />'
+        elif data.startswith("<ajax-request action='docmd' xcmd='block'") or data.startswith("<ajax-request action='docmd' xcmd='block-client'"):
+            # docmd block: xmsg type "-1" means the client must be re-blocked
+            # via the block-client command; type "0" means success
+            content = '<xmsg type="-1" msg="hv" lmsg="~hv~" />'
         elif data.startswith("<ajax-request action='getconf'") and data.endswith(" comp='mesh-list'/>"):
             content = '<mesh-list><mesh id="1" name="Mesh-Backbone" x-psk="" psk="" /></mesh-list>'
+        elif data.startswith("<ajax-request action='updobj'") or data.startswith("<ajax-request action='delobj'"):
+            # Failed conf mutation: the controller replies with an xmsg whose
+            # lmsg carries the error; _do_conf raises it as ValueError.
+            content = '<xmsg type="-1" msg="bad" lmsg="Command failed" />'
         else:
             return CallbackResult(body="\n")
         return CallbackResult(

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .abcsession import ConfigItem
-from .ajaxtyping import Mesh
+from .ajaxtyping import Mesh, SystemInfo
 from .backupsession import BackupSession
 from .const import SystemStat
 from .ruckusconfigurationapi import RuckusConfigurationApi
@@ -18,7 +18,7 @@ class RuckusBackupApi(RuckusConfigurationApi):
 
     async def get_system_info(self, *sections: SystemStat) -> dict:
         """Return system information"""
-        system_info = (await self._get_conf(ConfigItem.SYSTEM))["system"]
+        system_info = await self._get_conf(ConfigItem.SYSTEM, target_type=SystemInfo)
         metadata = self.session.get_metadata()
         system_info["sysinfo"] = {
             "version": f"{metadata['VERSION']} build {metadata['BUILD']}",
@@ -41,7 +41,7 @@ class RuckusBackupApi(RuckusConfigurationApi):
     async def get_mesh_info(self) -> Mesh:
         """Return mesh information"""
         try:
-            return await self._get_conf(ConfigItem.MESH_LIST)
+            return await self._get_conf(ConfigItem.MESH_LIST, target_type=Mesh)
         except KeyError:
             return Mesh(id="1", name="Mesh Backbone")
     

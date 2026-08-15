@@ -295,6 +295,6 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         raise NotImplementedError
     #
     @override
-    async def _get_conf(self, item: ConfigItem, collection_elements: list[str] | None = None) -> Any:
+    async def _get_conf(self, item: ConfigItem, target_type: type | None = None) -> Any:
         """Unsupported on Ruckus One; always raises NotImplementedError."""
         raise NotImplementedError

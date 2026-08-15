@@ -11,7 +11,6 @@ import re
 import ssl
 
 import aiohttp
-import xmltodict
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.padding import PKCS7
 from yarl import URL
@@ -21,9 +20,7 @@ from .const import (
     ERROR_INVALID_MAC,
     ERROR_PASSPHRASE_JS,
     ERROR_PASSPHRASE_LEN,
-    ERROR_POST_BADRESULT,
 )
-from .exceptions import SchemaError
 
 
 def get_host_url(host_str: str) -> URL:
@@ -94,37 +91,6 @@ def validate_passphrase(passphrase: str) -> str:
     if passphrase and re.fullmatch(r"[!-~][ -~]{6,61}[!-~]|[0-9a-fA-F]{64}", passphrase):
         return passphrase
     raise ValueError(ERROR_PASSPHRASE_LEN)
-
-def unwrap_xml(xml: str, collection_elements: list[str] | None = None, aggressive_unwrap: bool = True) -> dict | list[dict]:
-    """Parse a Ruckus XML response and unwrap it to the useful payload.
-
-    Args:
-        xml: raw XML response body.
-        collection_elements: element names to treat as collections (force_list).
-        aggressive_unwrap: also unwrap the ``apstamgr-stat`` wrapper.
-
-    Returns:
-        The parsed payload dict, or an empty list when there is no data.
-    """
-    # convert xml and unwrap collection
-    force_list = None if not collection_elements else {ce: True for ce in collection_elements}
-    result = xmltodict.parse(
-        xml,
-        encoding="utf-8",
-        attr_prefix='',
-        postprocessor=_process_ruckus_xml,
-        force_list=force_list
-    )
-    collection_list = ([] if not collection_elements else [f"{ce}-list" for ce in collection_elements] + collection_elements)
-    try:
-        result = result["ajax-response"]["response"]
-    except KeyError as kerr:
-        raise SchemaError(ERROR_POST_BADRESULT) from kerr
-
-    for key in (["apstamgr-stat"] if aggressive_unwrap else []) + collection_list:
-        if result and key and key in result:
-            result = result[key]
-    return result or []
 
 def _process_ruckus_xml(path, key, value):
     """xmltodict postprocessor: decrypt passphrases and normalize values."""
