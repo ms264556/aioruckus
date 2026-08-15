@@ -15,7 +15,7 @@ else:
 from .abcsession import ConfigItem
 from .ajaxsession import AjaxSession
 from .ajaxtyping import *
-from .const import SystemStat
+from .const import StatsLevel, SystemStat
 from .exceptions import AuthorizationError
 from .ruckusajaxapi import RuckusAjaxApi
 from .smartzonesession import SmartZoneSession
@@ -131,8 +131,17 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
             except AuthorizationError:
                 raise AuthorizationError("Unblocking clients requires Device [Full Access] permissions")
 
-    async def get_active_clients(self, interval_stats: bool = False) -> list[Client]:
-        """Return a list of active clients"""
+    async def get_active_clients(
+        self,
+        stats_level: StatsLevel | bool = StatsLevel.L1,
+        interval_stats: bool | None = None,
+    ) -> list[Client]:
+        """Return a list of active clients
+
+        SmartZone does not support the Unleashed/ZoneDirector stats levels;
+        ``stats_level`` / ``interval_stats`` are accepted for interface
+        compatibility with :class:`RuckusAjaxApi` and ignored.
+        """
         clients = await self.__session.query("query/client")
         return cast(list[Client], [
             {**client, "mac": client["clientMac"], "ip": client["ipAddress"], "ap": client["apMac"]}
@@ -147,8 +156,17 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
             for client in clients
         ])
 
-    async def get_ap_stats(self) -> list[ApStats]:
-        """Return a list of AP statistics"""
+    async def get_ap_stats(
+        self,
+        stats_level: StatsLevel | bool = StatsLevel.L1,
+        interval_stats: bool | None = None,
+    ) -> list[ApStats]:
+        """Return a list of AP statistics
+
+        SmartZone does not support the Unleashed/ZoneDirector stats levels;
+        ``stats_level`` / ``interval_stats`` are accepted for interface
+        compatibility with :class:`RuckusAjaxApi` and ignored.
+        """
         aps = await self.__session.query("query/ap")
         return cast(list[ApStats], [
             {**ap, "mac": ap["apMac"], "devname": ap["deviceName"], "firmware-version": ap["firmwareVersion"], "serial-number": ap["serial"]} 
@@ -208,6 +226,16 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
     #
     @override
     async def _cmdstat_noparse(self, data: str, timeout: int | None = None) -> str:
+        """Unsupported on SmartZone; always raises NotImplementedError."""
+        raise NotImplementedError
+    #
+    @override
+    async def _conf_noparse(self, data: str, timeout: int | None = None) -> str:
+        """Unsupported on SmartZone; always raises NotImplementedError."""
+        raise NotImplementedError
+    #
+    @override
+    async def _get_conf_str(self, item: ConfigItem, timeout: int | None = None) -> str:
         """Unsupported on SmartZone; always raises NotImplementedError."""
         raise NotImplementedError
     #

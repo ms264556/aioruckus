@@ -19,6 +19,7 @@ from .ajaxsession import AjaxSession
 from .ajaxtyping import *
 from .const import (
     R1_CLIENT_BLOCK_NAME,
+    StatsLevel,
     SystemStat,
 )
 from .ruckusajaxapi import RuckusAjaxApi
@@ -175,8 +176,17 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         if update_tasks:
             await asyncio.gather(*update_tasks)
 
-    async def get_active_clients(self, interval_stats: bool = False) -> list[Client]:
-        """Return a list of active clients"""
+    async def get_active_clients(
+        self,
+        stats_level: StatsLevel | bool = StatsLevel.L1,
+        interval_stats: bool | None = None,
+    ) -> list[Client]:
+        """Return a list of active clients
+
+        Ruckus One does not support the Unleashed/ZoneDirector stats levels;
+        ``stats_level`` / ``interval_stats`` are accepted for interface
+        compatibility with :class:`RuckusAjaxApi` and ignored.
+        """
         clients = await self.__session.get("clients")
         return cast(list[Client], [
             {
@@ -187,8 +197,17 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
             for client in clients
         ])
 
-    async def get_ap_stats(self) -> list[ApStats]:
-        """Return a list of AP statistics"""
+    async def get_ap_stats(
+        self,
+        stats_level: StatsLevel | bool = StatsLevel.L1,
+        interval_stats: bool | None = None,
+    ) -> list[ApStats]:
+        """Return a list of AP statistics
+
+        Ruckus One does not support the Unleashed/ZoneDirector stats levels;
+        ``stats_level`` / ``interval_stats`` are accepted for interface
+        compatibility with :class:`RuckusAjaxApi` and ignored.
+        """
         aps = await self.__session.get("venues/aps")
         return cast(list[ApStats], [
             {
@@ -291,6 +310,16 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
     #
     @override
     async def _cmdstat_noparse(self, data: str, timeout: int | None = None) -> str:
+        """Unsupported on Ruckus One; always raises NotImplementedError."""
+        raise NotImplementedError
+    #
+    @override
+    async def _conf_noparse(self, data: str, timeout: int | None = None) -> str:
+        """Unsupported on Ruckus One; always raises NotImplementedError."""
+        raise NotImplementedError
+    #
+    @override
+    async def _get_conf_str(self, item: ConfigItem, timeout: int | None = None) -> str:
         """Unsupported on Ruckus One; always raises NotImplementedError."""
         raise NotImplementedError
     #
