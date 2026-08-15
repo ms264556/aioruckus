@@ -40,6 +40,12 @@ class SystemStat(Enum):
     TIME = ["time"]
     UNLEASHED_NETWORK = ["unleashed-network"]
 
+class StatsLevel(Enum):
+    """Ruckus AJAX statistics detail level"""
+    L1 = "1"
+    L2 = "2"
+    L3 = "3"
+
 class WlanEncryption(Enum):
     """WLAN encryption types"""
     NONE = "none"

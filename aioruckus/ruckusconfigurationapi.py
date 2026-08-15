@@ -22,6 +22,7 @@ from .ajaxtyping import (
     Mesh,
     PrecedencePolicy,
     Role,
+    SystemInfo,
     UrlBlockCategory,
     UrlFilter,
     Wlan,
@@ -29,7 +30,6 @@ from .ajaxtyping import (
 )
 from .const import URL_FILTERING_CATEGORIES, SystemStat
 from .unleashedtojson import parse_ajax_response
-from .utility import unwrap_xml
 
 
 class RuckusConfigurationApi(ABC):
@@ -318,7 +318,7 @@ class RuckusConfigurationApi(ABC):
 
     async def get_system_info(self, *sections: SystemStat) -> dict:
         """Return system information"""
-        system_info = (await self._get_conf(ConfigItem.SYSTEM))["system"]
+        system_info = await self._get_conf(ConfigItem.SYSTEM, target_type=SystemInfo)
         
         section_keys: list[str]
         if sections:
@@ -331,7 +331,7 @@ class RuckusConfigurationApi(ABC):
 
     async def get_mesh_info(self) -> Mesh:
         """Return mesh information"""
-        return (await self._get_conf(ConfigItem.MESH_LIST))["mesh-list"]["mesh"]
+        return await self._get_conf(ConfigItem.MESH_LIST, target_type=Mesh)
     
     async def get_zerotouch_mesh_ap_serials(self) -> list[dict]:
         """Return a list of Pre-approved AP serial numbers"""
@@ -351,16 +351,16 @@ class RuckusConfigurationApi(ABC):
         return acls[0].get("deny", []) if acls else []
 
     async def _get_conf(
-        self, item: ConfigItem, collection_elements: list[str] | None = None,
-        target_type: type | None = None
+        self, item: ConfigItem, target_type: type | None = None
     ) -> Any:
-        """Return the relevant config xml, given a configuration key"""
+        """Return the relevant config xml, given a configuration key.
+
+        The response is parsed via :func:`parse_ajax_response`; pass a
+        TypedDict (or ``dict`` / ``list``) as ``target_type`` to describe
+        the desired structure.
+        """
         result_text = await self.session.get_conf_str(item)
-        if target_type is not None:
-            # TypedDict-driven conversion: the target type describes the
-            # desired structure, no per-request collection elements needed
-            return parse_ajax_response(result_text, target_type)
-        return unwrap_xml(result_text, collection_elements)
+        return parse_ajax_response(result_text, target_type)
 
     @staticmethod
     def _normalize_conf_value(current_value: str, new_value: Any) -> str:

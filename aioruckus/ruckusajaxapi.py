@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime
 import xml.etree.ElementTree as ET
-from typing import Any
+from typing import Any, overload
 from xml.sax import saxutils
 
 from .abcsession import ConfigItem
@@ -14,10 +14,13 @@ from .ajaxtyping import (
     ApGroup,
     ApStats,
     Client,
+    DocmdResponse,
     Dpsk,
     Event,
     L2Policy,
     Rogue,
+    SystemInfo,
+    TimeInfo,
     Vap,
     Wlan,
     WlanGroup,
@@ -31,6 +34,7 @@ from .const import (
     ERROR_PASSPHRASE_NAME,
     ERROR_SAEPASSPHRASE_MISSING,
     PatchNewAttributeMode,
+    StatsLevel,
     SystemStat,
     WlanEncryption,
 )
@@ -38,6 +42,13 @@ from .ruckusconfigurationapi import RuckusConfigurationApi
 from .unleashedsession import UnleashedSession
 from .unleashedtojson import parse_ajax_response
 from .utility import *
+
+
+def _coerce_stats_level(stats_level: StatsLevel | bool) -> StatsLevel:
+    """Map a legacy boolean ``interval_stats`` flag onto a StatsLevel."""
+    if isinstance(stats_level, bool):
+        return StatsLevel.L3 if stats_level else StatsLevel.L1
+    return stats_level
 
 
 class RuckusAjaxApi(RuckusConfigurationApi):
@@ -83,30 +94,50 @@ class RuckusAjaxApi(RuckusConfigurationApi):
             
         section = ''.join(f"<{s}/>" for s in section_keys)
         sysinfo = await self.cmdstat(
-            f"<ajax-request action='getstat' comp='system'>{section}</ajax-request>"
+            f"<ajax-request action='getstat' comp='system'>{section}</ajax-request>",
+            target_type=SystemInfo,
         )
-        return sysinfo.get("response", sysinfo.get("system"))
+        return sysinfo
 
-    async def get_active_clients(self, interval_stats: bool = False) -> list[Client]:
-        """Return a list of active clients"""
-        if interval_stats:
-            endtime = await self._get_timestamp_at_controller()
-            starttime = endtime - 86400
-            clientrequest = f"<client INTERVAL-STATS='yes' INTERVAL-START='{starttime}' INTERVAL-STOP='{endtime}' />"
-        else:
-            clientrequest = "<client LEVEL='1' />"
-        return await self.cmdstat(f"<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>{clientrequest}</ajax-request>", target_type=list[Client])
+    @overload
+    async def get_active_clients(self, stats_level: StatsLevel = StatsLevel.L1) -> list[Client]: ...
+
+    @overload
+    async def get_active_clients(self, interval_stats: bool) -> list[Client]: ...
+
+    async def get_active_clients(
+        self, stats_level: StatsLevel | bool = StatsLevel.L1
+    ) -> list[Client]:
+        """Return a list of active clients
+
+        Args:
+            stats_level: Level 1 (basic), Level 2 (extended), or Level 3
+                (interval stats). A boolean is accepted for backwards
+                compatibility: True requests interval stats (L3), False
+                requests basic stats (L1).
+        """
+        return await self._get_entity_stats("client", _coerce_stats_level(stats_level), list[Client])
 
     async def get_inactive_clients(self) -> list[Client]:
         """Return a list of inactive clients"""
         return await self.cmdstat("<ajax-request action='getstat' comp='stamgr' enable-gzip='0'><clientlist period='0' /></ajax-request>", target_type=list[Client])
 
-    async def get_ap_stats(self) -> list[ApStats]:
-        """Return a list of AP statistics"""
-        return await self.cmdstat(
-            "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
-            "<ap LEVEL='1' /></ajax-request>", target_type=list[ApStats]
-        )
+    @overload
+    async def get_ap_stats(self, stats_level: StatsLevel = StatsLevel.L1) -> list[ApStats]: ...
+
+    @overload
+    async def get_ap_stats(self, interval_stats: bool) -> list[ApStats]: ...
+
+    async def get_ap_stats(self, stats_level: StatsLevel | bool = StatsLevel.L1) -> list[ApStats]:
+        """Return a list of AP statistics
+
+        Args:
+            stats_level: Level 1 (basic), Level 2 (extended), or Level 3
+                (interval stats). A boolean is accepted for backwards
+                compatibility: True requests interval stats (L3), False
+                requests basic stats (L1).
+        """
+        return await self._get_entity_stats("ap", _coerce_stats_level(stats_level), list[ApStats])
 
     async def get_ap_group_stats(self) -> list[ApGroup]:
         """Return a list of AP group statistics"""
@@ -180,7 +211,8 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         ts = ruckus_timestamp()
         syslog = await self.cmdstat(
             f"<ajax-request action='docmd' xcmd='get-syslog' updater='system.{ts}' comp='system'>"
-            f"<xcmd cmd='get-syslog' type='sys'/></ajax-request>"
+            f"<xcmd cmd='get-syslog' type='sys'/></ajax-request>",
+            target_type=DocmdResponse,
         )
         return syslog["xmsg"]["res"]
 
@@ -197,13 +229,15 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         result = await self.cmdstat(
             f"<ajax-request action='docmd' xcmd='block' checkAbility='10' comp='stamgr'>"
             f"<xcmd check-ability='10' tag='client' acl-id='1' client='{mac}' cmd='block'>"
-            f"<client client='{mac}' acl-id='1' hostname=''></client></xcmd></ajax-request>"
+            f"<client client='{mac}' acl-id='1' hostname=''></client></xcmd></ajax-request>",
+            target_type=DocmdResponse,
         )
         if "xmsg" in result and result["xmsg"].get("type") == "-1":
             await self.cmdstat(
                 f"<ajax-request action='docmd' xcmd='block-client' comp='stamgr'>"
                 f"<xcmd cmd='block-client'><client mac='{mac}'></client></xcmd>"
-                f"</ajax-request>"
+                f"</ajax-request>",
+                target_type=DocmdResponse,
             )
 
     async def do_unblock_client(self, mac: str) -> None:
@@ -598,9 +632,36 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         ts = ruckus_timestamp()
         time_info = await self.cmdstat(
             f"<ajax-request action='getstat' updater='system.{ts}' comp='system'>"
-            f"<time/></ajax-request>"
+            f"<time/></ajax-request>",
+            target_type=TimeInfo,
         )
-        return int(time_info["response"]["time"]["time"])
+        return int(time_info["time"]["time"])
+
+    async def _get_entity_stats(
+        self,
+        entity_name: str,
+        stats_level: StatsLevel,
+        target_type: type,
+    ) -> Any:
+        """Fetch entity statistics at the requested detail level.
+
+        Level 3 requests 24 hours of interval statistics instead of a single
+        LEVEL snapshot.
+        """
+        if stats_level == StatsLevel.L3:
+            endtime = await self._get_timestamp_at_controller()
+            starttime = endtime - 86400
+            entityrequest = (
+                f"<{entity_name} INTERVAL-STATS='yes' "
+                f"INTERVAL-START='{starttime}' INTERVAL-STOP='{endtime}' />"
+            )
+        else:
+            entityrequest = f"<{entity_name} LEVEL='{stats_level.value}' />"
+        return await self.cmdstat(
+            f"<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
+            f"{entityrequest}</ajax-request>",
+            target_type=target_type,
+        )
 
     async def _cmdstat_noparse(self, data: str, timeout: int | None = None) -> str:
         """Call cmdstat without parsing response"""
@@ -608,16 +669,16 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         return await self.__session._ajax_request("_cmdstat.jsp", data, timeout=timeout)
 
     async def cmdstat(
-        self, data: str, collection_elements: list[str] | None = None, aggressive_unwrap: bool = True,
-        timeout: int | None = None, target_type: type | None = None
+        self, data: str, timeout: int | None = None, target_type: type | None = None
     ) -> Any:
-        """Call cmdstat and parse xml result"""
+        """Call cmdstat and parse xml result.
+
+        The response is parsed via :func:`parse_ajax_response`; pass a
+        TypedDict (or ``dict`` / ``list``) as ``target_type`` to describe
+        the desired structure.
+        """
         result_text = await self._cmdstat_noparse(data, timeout)
-        if target_type is not None:
-            # TypedDict-driven conversion: the target type describes the
-            # desired structure, no per-request collection elements needed
-            return parse_ajax_response(result_text, target_type)
-        return unwrap_xml(result_text, collection_elements, aggressive_unwrap)
+        return parse_ajax_response(result_text, target_type)
 
     async def cmdstat_piecewise(
         self,
@@ -651,16 +712,21 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         return await self.__session._ajax_request("_conf.jsp", data, timeout=timeout)
 
     async def conf(
-        self, data: str, collection_elements: list[str] | None = None, timeout: int | None = None
+        self, data: str, timeout: int | None = None, target_type: type | None = None
     ) -> Any:
-        """Call conf and parse xml result"""
+        """Call conf and parse xml result.
+
+        The response is parsed via :func:`parse_ajax_response`; pass a
+        TypedDict (or ``dict`` / ``list``) as ``target_type`` to describe
+        the desired structure.
+        """
         result_text = await self._conf_noparse(data, timeout)
-        return unwrap_xml(result_text, collection_elements)
+        return parse_ajax_response(result_text, target_type)
 
     async def _do_conf(
-        self, data: str, collection_elements: list[str] | None = None, timeout: int | None = None
+        self, data: str, timeout: int | None = None
     ) -> None:
         """Call conf and confirm success"""
-        result = await self.conf(data, collection_elements, timeout)
+        result = await self.conf(data, timeout=timeout, target_type=DocmdResponse)
         if "xmsg" in result:
             raise ValueError(result["xmsg"]["lmsg"])
