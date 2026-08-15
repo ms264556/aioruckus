@@ -17,6 +17,7 @@ from yarl import URL
 
 from .const import (
     ERROR_CONNECT_NOPARSE,
+    ERROR_GUEST_PASS_KEY_INVALID,
     ERROR_INVALID_MAC,
     ERROR_PASSPHRASE_JS,
     ERROR_PASSPHRASE_LEN,
@@ -92,9 +93,19 @@ def validate_passphrase(passphrase: str) -> str:
         return passphrase
     raise ValueError(ERROR_PASSPHRASE_LEN)
 
+def validate_guest_key(key: str) -> str:
+    """Validate a guest pass key against ZoneDirector/Unleashed rules"""
+    if key and re.fullmatch(r'[^ #&+"\',<>]{2,16}', key):
+        return key
+    raise ValueError(ERROR_GUEST_PASS_KEY_INVALID)
+
 def _process_ruckus_xml(path, key, value):
     """xmltodict postprocessor: decrypt passphrases and normalize values."""
     if key.startswith("x-"):
+        if key == "x-key":
+            # guest-pass keys are plain values, not obfuscated passphrases;
+            # rename to key like other x-* attributes but keep the value verbatim
+            return key[2:], value
         # passphrases are obfuscated and stored with an x- prefix; decrypt these
         return key[2:], _decrypt_value(key, value) if value else value
     if key == "apstamgr-stat" and not value:
