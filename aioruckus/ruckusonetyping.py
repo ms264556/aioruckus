@@ -24,3 +24,23 @@ class AccessControlProfileDict(TypedDict, total=False):
     l2AclPolicy: AccessControlPolicyDict
     wifiNetworkIds: list[str]
 
+class GuestUserDict(TypedDict, total=False):
+    """A Ruckus One guest user (guest pass) payload."""
+    id: str
+    name: str
+    password: str
+    ssid: str
+    networkId: str
+    email: str
+    mobilePhoneNumber: str
+    notes: str
+    disabled: bool
+    maxDevices: int
+    deliveryMethods: list[str]
+    expiration: dict
+    createdDate: int
+    expirationDate: int
+    lastModified: int
+    guestUserType: str
+    macAddresses: list[str]
+

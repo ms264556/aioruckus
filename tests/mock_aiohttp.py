@@ -136,6 +136,9 @@ class AioResponsesMock:
     def delete(self, pattern, status=200, headers=None, body="", payload=None, exception=None, callback=None, repeat=True):
         self.add_route("delete", pattern, status, headers, body, payload, exception, callback)
 
+    def patch(self, pattern, status=200, headers=None, body="", payload=None, exception=None, callback=None, repeat=True):
+        self.add_route("patch", pattern, status, headers, body, payload, exception, callback)
+
     def add_route(self, method, pattern, status=200, headers=None, body="", payload=None, exception=None, callback=None):
         self.routes.append({
             "method": method.lower(),
@@ -160,9 +163,8 @@ class AioResponsesMock:
                 if isinstance(pattern, re.Pattern):
                     if pattern.search(url_str) or pattern.match(url_str):
                         match = True
-                elif isinstance(pattern, str):
-                    if pattern == url_str:
-                        match = True
+                elif isinstance(pattern, str) and pattern == url_str:
+                    match = True
                 
                 if match:
                     return route

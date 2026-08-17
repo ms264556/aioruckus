@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from math import ceil
 from typing import Any
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing_extensions import Self
 
 import aiohttp
 from yarl import URL
@@ -52,12 +58,12 @@ class RuckusOneSession:
         self.__client = websession or create_legacy_client_session()
         self.__auto_cleanup_websession = not websession
 
-    async def __aenter__(self) -> RuckusOneSession:
+    async def __aenter__(self) -> Self:
         """Login and return this session for use as an async context manager."""
         await self.login()
         return self
 
-    async def __aexit__(self, *exc: Any) -> None:
+    async def __aexit__(self, *exc: object) -> None:
         """Close the session when leaving the async context manager."""
         await self.close()
 
@@ -204,7 +210,11 @@ class RuckusOneSession:
                     if activity_status == "FAIL":
                         raise RuntimeError(activity_json.get("error", ERROR_POST_BADRESULT))
             raise RuntimeError(ERROR_CONNECT_TIMEOUT)
-        elif response.status in (201, 202, 204):
+        elif response.status == 201:
+            # 201 Created bodies carry the created resource (e.g. the guest
+            # user), which the async workflow may not show in a list yet
+            return await response.json() if response.content_type.endswith("json") else None
+        elif response.status in (202, 204):
             return None
         elif response.status == 403:
             raise AuthorizationError(ERROR_POST_REDIRECTED)
@@ -214,7 +224,10 @@ class RuckusOneSession:
         try:
             response_json = await response.json()
             response_error = response_json["errors"][0]
-        except:
+        except (KeyError, ValueError):
             raise RuntimeError(response.status)
-        raise BusinessRuleError(f"{response_error['message']}: {response_error['reason']}")
+        message = response_error.get("message", "")
+        reason = response_error.get("reason")
+        detail = f"{message}: {reason}" if reason else message
+        raise BusinessRuleError(detail or str(response.status))
 
