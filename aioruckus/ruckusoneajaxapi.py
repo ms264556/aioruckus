@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time
 from copy import deepcopy
 from typing import Any, cast
 
@@ -18,14 +19,35 @@ from aioruckus.ajaxtyping import Wlan
 from .ajaxsession import AjaxSession
 from .ajaxtyping import *
 from .const import (
+    ERROR_GUEST_PASS_BATCH_SIZE,
+    ERROR_INVALID_WLAN,
     R1_CLIENT_BLOCK_NAME,
     StatsLevel,
     SystemStat,
 )
 from .ruckusajaxapi import RuckusAjaxApi
 from .ruckusonesession import RuckusOneSession
-from .ruckusonetyping import AccessControlPolicyDict, AccessControlProfileDict
+from .ruckusonetyping import (
+    AccessControlPolicyDict,
+    AccessControlProfileDict,
+    GuestUserDict,
+)
 from .utility import *
+
+_R1_DURATION_UNITS = {
+    "min": "Minute",
+    "hour": "Hour",
+    "day": "Day",
+    "week": "Week",
+    "month": "Month",
+    "year": "Year",
+    "never": "Never",
+}
+
+
+def _r1_duration_unit(unit: str) -> str:
+    """Map a shared duration unit onto the Ruckus One expiration unit enum."""
+    return _R1_DURATION_UNITS.get(unit.lower(), unit.capitalize())
 
 
 class RuckusOneAjaxApi(RuckusAjaxApi):
@@ -243,6 +265,265 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
                 fire_and_forget=True
             )
 
+    #
+    # Guest passes are "guest users" on a Wi-Fi network in Ruckus One:
+    # listed via the guestUsers query, created one at a time via
+    # wifiNetworks/{id}/guestUsers (there is no batch create), optionally
+    # re-keyed via a PATCH password update, and deleted per guest user id.
+    #
+
+    def _r1_guest_from_json(self, payload: GuestUserDict) -> Guest:
+        """Normalize a Ruckus One guest user payload to the ``Guest`` shape."""
+        expiration = payload.get("expiration") or {}
+        max_devices = payload.get("maxDevices", 0)
+        return {
+            "key": payload.get("password", ""),
+            "id": payload.get("id", ""),
+            "name": payload.get("name", ""),
+            "ssid": payload.get("ssid", ""),
+            "email": payload.get("email", ""),
+            "phone-number": payload.get("mobilePhoneNumber", ""),
+            "create-time": str(payload.get("createdDate", "")),
+            "expire-time": str(payload.get("expirationDate", "")),
+            "duration": str(expiration.get("duration", "")),
+            "duration-unit": (expiration.get("unit") or "").lower(),
+            "shared-guestpass": "true" if max_devices == -1 else "false",
+            "share-number": str(max_devices),
+            "remarks": payload.get("notes", ""),
+            "networkId": payload.get("networkId", ""),
+            "guest-user-type": payload.get("guestUserType", ""),
+        }
+
+    async def _r1_resolve_wifi_network(self, ssid: str) -> dict:
+        """Resolve a Wi-Fi network id and name from an SSID."""
+        wlan = next(
+            (w for w in await self.get_wlans()
+             if w.get("ssid") == ssid or w.get("name") == ssid),
+            None,
+        )
+        if not wlan:
+            raise ValueError(ERROR_INVALID_WLAN)
+        return wlan
+
+    def _r1_guest_payload(self, name: str, duration: int, duration_unit: str,
+                          shared: bool, share_number: int, email: str,
+                          phone_number: str, remarks: str) -> dict:
+        """Build a Ruckus One create-guest-user request payload."""
+        delivery_methods = []
+        if email:
+            delivery_methods.append("MAIL")
+        if phone_number:
+            delivery_methods.append("SMS")
+        if not delivery_methods:
+            delivery_methods.append("STUB")
+        return {
+            "name": name,
+            "deliveryMethods": delivery_methods,
+            "expiration": {
+                "activationType": "Creation",
+                "duration": duration,
+                "unit": _r1_duration_unit(duration_unit),
+            },
+            "maxDevices": -1 if shared else max(1, share_number),
+            "email": email,
+            "mobilePhoneNumber": phone_number,
+            "notes": remarks,
+        }
+
+    def _r1_guest_from_json(self, payload: GuestUserDict) -> Guest:
+        """Normalize a Ruckus One guest user payload to the ``Guest`` shape.
+
+        Ruckus One never exposes the guest user password (the pass key shown
+        on vouchers) outside of the create response, so the guest user
+        ``id`` is used as the pass ``key`` to keep list/create/remove
+        coherent; the password is kept as an extra field when known.
+        """
+        expiration = payload.get("expiration") or {}
+        max_devices = payload.get("maxDevices", 0)
+        guest: dict[str, Any] = {
+            "key": payload.get("id", ""),
+            "id": payload.get("id", ""),
+            "name": payload.get("name", ""),
+            "ssid": payload.get("ssid", ""),
+            "email": payload.get("email", ""),
+            "phone-number": payload.get("mobilePhoneNumber", ""),
+            "create-time": str(payload.get("createdDate", "")),
+            "expire-time": str(payload.get("expirationDate", "")),
+            "duration": str(expiration.get("duration", "")),
+            "duration-unit": (expiration.get("unit") or "").lower(),
+            "shared-guestpass": "true" if max_devices == -1 else "false",
+            "share-number": str(max_devices),
+            "remarks": payload.get("notes", ""),
+            "networkId": payload.get("networkId", ""),
+            "guest-user-type": payload.get("guestUserType", ""),
+        }
+        if payload.get("password"):
+            guest["password"] = payload["password"]
+        return cast(Guest, guest)
+
+    @override
+    async def get_guest_passes(self) -> list[Guest]:
+        """Return a list of guest passes"""
+        guests = await self.__session.query("guestUsers/query")
+        return [
+            self._r1_guest_from_json(cast(GuestUserDict, guest))
+            for guest in guests
+        ]
+
+    @override
+    async def do_add_guest_passes(
+        self,
+        ssid: str,
+        duration: int = 1,
+        duration_unit: str = "day",
+        batch_size: int = 2,
+        name: str = "",
+        shared: bool = False,
+        share_number: int = 1,
+        reauth_enabled: bool = False,
+        reauth_interval: str = "",
+        reauth_interval_unit: str = "min",
+        email: str = "",
+        country_code: str = "",
+        phone_number: str = "",
+        remarks: str = "",
+    ) -> list[Guest]:
+        """Create a batch of guest passes on ``ssid`` and return the created passes.
+
+        Ruckus One has no batch create, so each pass is created as an
+        individual guest user with an auto-generated key. ``reauth_*`` /
+        ``country_code`` are accepted for API compatibility but ignored:
+        Ruckus One has no equivalent fields.
+        """
+        if not 2 <= batch_size <= 100:
+            raise ValueError(ERROR_GUEST_PASS_BATCH_SIZE)
+        wlan = await self._r1_resolve_wifi_network(ssid)
+        before = {guest["id"] for guest in await self.get_guest_passes()}
+        batch_name = name or f"batch-{int(time.time())}"
+        responses = await asyncio.gather(*[
+            self.__session.post(
+                f"wifiNetworks/{wlan['id']}/guestUsers",
+                self._r1_guest_payload(
+                    f"{batch_name}-{i}",
+                    duration,
+                    duration_unit,
+                    shared,
+                    share_number,
+                    email,
+                    phone_number,
+                    remarks,
+                ),
+            )
+            for i in range(1, batch_size + 1)
+        ])
+        # Ruckus One creates guest users asynchronously, so the 201 response
+        # body (not a re-list) carries the created passes
+        created = [
+            self._r1_guest_from_json(cast(GuestUserDict, resp["response"]))
+            for resp in responses
+            if resp and resp.get("response")
+        ]
+        if len(created) < batch_size:
+            # some creates did not echo the guest; pick them up from the list
+            listed = {g["id"] for g in created}
+            created += [
+                guest for guest in await self.get_guest_passes()
+                if guest.get("id") not in before and guest.get("id") not in listed
+            ]
+        return created
+
+    @override
+    async def do_add_guest_pass(
+        self,
+        ssid: str,
+        name: str = "",
+        x_key: str | None = None,
+        duration: int = 1,
+        duration_unit: str = "day",
+        shared: bool = False,
+        share_number: int = 1,
+        reauth_enabled: bool = False,
+        reauth_interval: str = "",
+        reauth_interval_unit: str = "min",
+        email: str = "",
+        country_code: str = "",
+        phone_number: str = "",
+        remarks: str = "",
+    ) -> Guest:
+        """Create a single guest pass on ``ssid`` and return it.
+
+        Pass a custom ``x_key`` to re-key the pass after creation via a
+        PATCH password update (Ruckus One always auto-generates the initial
+        key). ``reauth_*`` / ``country_code`` are accepted for API
+        compatibility but ignored: Ruckus One has no equivalent fields.
+        """
+        wlan = await self._r1_resolve_wifi_network(ssid)
+        pass_value = validate_guest_key(x_key) if x_key else ""
+        guest_name = name or f"guest-{int(time.time())}"
+        resp = await self.__session.post(
+            f"wifiNetworks/{wlan['id']}/guestUsers",
+            self._r1_guest_payload(
+                guest_name,
+                duration,
+                duration_unit,
+                shared,
+                share_number,
+                email,
+                phone_number,
+                remarks,
+            ),
+        )
+        # Ruckus One creates guest users asynchronously, so the 201 response
+        # body (not a re-list) carries the created pass
+        created = (resp or {}).get("response")
+        guest = (
+            self._r1_guest_from_json(cast(GuestUserDict, created))
+            if created
+            else {
+                "id": "",
+                "key": "",
+                "name": guest_name,
+                "ssid": ssid,
+                "duration": str(duration),
+                "duration-unit": duration_unit.lower(),
+                "remarks": remarks,
+                "networkId": wlan["id"],
+            }
+        )
+        if pass_value and guest["id"]:
+            await self.__session.patch(
+                f"wifiNetworks/{wlan['id']}/guestUsers/{guest['id']}",
+                {"password": pass_value},
+            )
+            guest = {**guest, "password": pass_value}
+        return guest
+
+    @override
+    async def do_remove_guest_passes(self, *keys: str) -> None:
+        """Remove guest passes by their keys.
+
+        Each key is resolved to its guest user id (and network id) via the
+        guest user list before per-user DELETE requests are issued.
+        """
+        if not keys:
+            return
+        key_set = set(keys)
+        guests = await self.get_guest_passes()
+        missing = [key for key in keys if key not in {g.get("key") for g in guests}]
+        if missing:
+            raise ValueError(f"Guest pass key(s) not found: {', '.join(missing)}")
+        targets = [
+            g for g in guests
+            if g.get("key") in key_set and g.get("id") and g.get("networkId")
+        ]
+        if targets:
+            await asyncio.gather(*[
+                self.__session.delete(
+                    f"wifiNetworks/{g['networkId']}/guestUsers/{g['id']}"
+                )
+                for g in targets
+            ])
+
     async def _query_acl_profile(self, name: str) -> AccessControlProfileDict | None:
         """Return the access control profile with the given name, or None."""
         profiles = await self._query_acl_profiles({"name": [name]})
@@ -312,17 +593,14 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
     async def _cmdstat_noparse(self, data: str, timeout: int | None = None) -> str:
         """Unsupported on Ruckus One; always raises NotImplementedError."""
         raise NotImplementedError
-    #
     @override
     async def _conf_noparse(self, data: str, timeout: int | None = None) -> str:
         """Unsupported on Ruckus One; always raises NotImplementedError."""
         raise NotImplementedError
-    #
     @override
     async def _get_conf_str(self, item: ConfigItem, timeout: int | None = None) -> str:
         """Unsupported on Ruckus One; always raises NotImplementedError."""
         raise NotImplementedError
-    #
     @override
     async def _get_conf(self, item: ConfigItem, target_type: type | None = None) -> Any:
         """Unsupported on Ruckus One; always raises NotImplementedError."""
