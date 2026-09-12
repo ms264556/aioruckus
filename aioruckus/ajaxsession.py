@@ -54,7 +54,12 @@ class AjaxSession(AbcSession):
 
     async def __aenter__(self) -> AjaxSession:
         """Login and return this session for use as an async context manager."""
-        await self.login()
+        try:
+            await self.login()
+        except BaseException:
+            if self.__auto_cleanup_websession and self.websession:
+                await self.websession.close()
+            raise
         return self
 
     async def __aexit__(self, *exc: Any) -> None:

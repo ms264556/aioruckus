@@ -95,17 +95,18 @@ class MockClientResponse:
     async def close(self):
         pass
 
-    async def release(self):
+    def release(self):
         pass
 
     async def wait_for_close(self):
         pass
-    
+
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.close()
+        self.release()
+        await self.wait_for_close()
 
 
 def merge_params(url: URL, params) -> URL:
