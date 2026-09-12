@@ -85,6 +85,8 @@ class RuckusOneSession:
                 self.__base_url / "oauth2/token" / self.__tenant_id,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
                 data={"grant_type": "client_credentials", "client_id": self.username, "client_secret": self.password},
+                # Ruckus One is a cloud service and can be sluggish, so allow more
+                # than the local controllers' 3s login budget before giving up
                 timeout=aiohttp.ClientTimeout(total=20),
                 allow_redirects=False
             ) as oauth2:
@@ -132,7 +134,6 @@ class RuckusOneSession:
     async def query(self, cmd: str, params: dict | None = None, page_size: int = 100, pages_limit: int = 100, timeout: aiohttp.ClientTimeout | int | None = None) -> list:
         """POST a query, following pagination until all pages are collected."""
         query = params or {}
-        timeout = cast_timeout(timeout)
 
         first_page = await self.post(cmd, {**query, "page": 1, "pageSize": page_size}, timeout)
         results: list[Any] = first_page.get("data", [])
@@ -164,15 +165,25 @@ class RuckusOneSession:
         fire_and_forget: bool = False,
         retrying: bool = False,
     ) -> Any:
-        """Send an authenticated request, re-logging in once if the token has expired."""
+        """Send an authenticated request, re-logging in once if the token has expired.
+
+        ``timeout`` overrides the websession's own timeout for this request. A
+        ``None`` timeout means "don't override" — the ClientSession timeout is
+        used instead; it is deliberately omitted from the aiohttp call, since
+        passing ``None`` there would mean "no timeout". Login and activity
+        polling intentionally ignore this and use short fixed timeouts, so that
+        an unreachable controller fails fast.
+        """
         if not self.__base_url or not self.__bearer_token:
             raise RuntimeError(ERROR_NO_SESSION)
 
         kwargs: dict[str, Any] = {
             "headers": {"Authorization": self.__bearer_token},
-            "timeout": cast_timeout(timeout),
             "allow_redirects": False,
         }
+        request_timeout = cast_timeout(timeout)
+        if request_timeout is not None:
+            kwargs["timeout"] = request_timeout
         if uri_params:
             kwargs["params"] = uri_params
         if json is not None:

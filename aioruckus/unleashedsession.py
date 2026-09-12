@@ -235,17 +235,25 @@ class UnleashedSession:
         ``data`` is an XML string sent as ``text/xml``, or — when ``form``
         is True — a mapping url-encoded like an HTML form (used by the
         guest-pass ``mon_guestdata.jsp`` / ``mon_createguest.jsp`` JSPs).
+
+        ``timeout`` overrides the websession's own timeout for this request. A
+        ``None`` timeout means "don't override" — the ClientSession timeout is
+        used instead; it is deliberately omitted from the aiohttp call, since
+        passing ``None`` there would mean "no timeout".
         """
         if not self.base_url:
             raise RuntimeError(ERROR_NO_SESSION)
 
-        async with self.__client.post(
-            self.base_url / cmd,
-            data=data,
-            headers=None if form else {"Content-Type": "text/xml"},
-            timeout=cast_timeout(timeout),
-            allow_redirects=False,
-        ) as response:
+        request_kwargs: dict[str, Any] = {
+            "data": data,
+            "headers": None if form else {"Content-Type": "text/xml"},
+            "allow_redirects": False,
+        }
+        request_timeout = cast_timeout(timeout)
+        if request_timeout is not None:
+            request_kwargs["timeout"] = request_timeout
+
+        async with self.__client.post(self.base_url / cmd, **request_kwargs) as response:
             if response.status == 302:
                 # if the session is dead then we're redirected to the login page
                 if retrying:
@@ -382,16 +390,23 @@ class UnleashedSession:
         timeout: aiohttp.ClientTimeout | int | None = None,
         retrying: bool = False,
     ) -> bytes:
-        """Download a file from the controller"""
+        """Download a file from the controller.
+
+        ``timeout`` overrides the websession's own timeout for this request. A
+        ``None`` timeout means "don't override" — the ClientSession timeout is
+        used instead; it is deliberately omitted from the aiohttp call, since
+        passing ``None`` there would mean "no timeout".
+        """
         if not self.base_url:
             raise RuntimeError(ERROR_NO_SESSION)
         url = self.base_url / file_url if isinstance(file_url, str) else file_url
 
-        async with self.__client.get(
-            url,
-            timeout=cast_timeout(timeout),
-            allow_redirects=False,
-        ) as response:
+        request_kwargs: dict[str, Any] = {"allow_redirects": False}
+        request_timeout = cast_timeout(timeout)
+        if request_timeout is not None:
+            request_kwargs["timeout"] = request_timeout
+
+        async with self.__client.get(url, **request_kwargs) as response:
             if response.status == 302:
                 # if the session is dead then we're redirected to the login page
                 if retrying:

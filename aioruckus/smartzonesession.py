@@ -163,28 +163,27 @@ class SmartZoneSession:
 
     async def get(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
         """Perform a GET request against the SmartZone API."""
-        return await self._request("get", cmd, uri_params=params, timeout=cast_timeout(timeout))
+        return await self._request("get", cmd, uri_params=params, timeout=timeout)
 
     async def post(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
         """Perform a POST request against the SmartZone API."""
-        return await self._request("post", cmd, json=params or {}, timeout=cast_timeout(timeout))
+        return await self._request("post", cmd, json=params or {}, timeout=timeout)
 
     async def put(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
         """Perform a PUT request against the SmartZone API."""
-        return await self._request("put", cmd, json=params or {}, timeout=cast_timeout(timeout))
+        return await self._request("put", cmd, json=params or {}, timeout=timeout)
 
     async def patch(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
         """Perform a PATCH request against the SmartZone API."""
-        return await self._request("patch", cmd, json=params or {}, timeout=cast_timeout(timeout))
+        return await self._request("patch", cmd, json=params or {}, timeout=timeout)
 
     async def delete(self, cmd: str, params: dict | None = None, timeout: aiohttp.ClientTimeout | int | None = None) -> Any:
         """Perform a DELETE request against the SmartZone API."""
-        return await self._request("delete", cmd, json=params or {}, timeout=cast_timeout(timeout))
+        return await self._request("delete", cmd, json=params or {}, timeout=timeout)
 
     async def query(self, cmd: str, params: dict | None = None, page_size: int = 100, pages_limit: int = 100, timeout: aiohttp.ClientTimeout | int | None = None) -> list:
         """POST a query, following pagination until all pages are collected."""
         query = params or {}
-        timeout = cast_timeout(timeout)
 
         first_page = await self.post(cmd, {**query, "page": 1, "limit": page_size}, timeout)
         results: list[Any] = first_page.get("list", [])
@@ -215,7 +214,15 @@ class SmartZoneSession:
         timeout: aiohttp.ClientTimeout | None = None,
         retrying: bool = False,
     ) -> Any:
-        """Send an authenticated request, re-logging in once if the ticket has expired."""
+        """Send an authenticated request, re-logging in once if the ticket has expired.
+
+        ``timeout`` overrides the websession's own timeout for this request. A
+        ``None`` timeout means "don't override" — the ClientSession timeout is
+        used instead; it is deliberately omitted from the aiohttp call, since
+        passing ``None`` there would mean "no timeout". Login, logout and
+        activity polling intentionally ignore this and use short fixed
+        timeouts, so that an unreachable controller fails fast.
+        """
         if not self.__base_url or not self.__service_ticket:
             raise RuntimeError(ERROR_NO_SESSION)
 
@@ -225,9 +232,11 @@ class SmartZoneSession:
 
         kwargs: dict[str, Any] = {
             "params": params,
-            "timeout": cast_timeout(timeout),
             "allow_redirects": False,
         }
+        request_timeout = cast_timeout(timeout)
+        if request_timeout is not None:
+            kwargs["timeout"] = request_timeout
         if json is not None:
             kwargs["json"] = json
 
