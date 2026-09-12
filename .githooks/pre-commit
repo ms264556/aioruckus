@@ -1,0 +1,56 @@
+#!/bin/sh
+# Pre-commit gate: fail the commit unless the test suite passes.
+#
+# Runs the unit suite (live tests are deselected by default in
+# pyproject.toml) plus a live-test collection check, which catches import or
+# fixture rot in tests/live/ that is otherwise never exercised without
+# hardware. Collection does not execute test bodies, so a live test that is
+# merely wrong at runtime is not caught here — that still needs hardware.
+#
+# Set AIORUCKUS_HOOK_PYTHON to override the interpreter, otherwise the first
+# of .venv/bin/python, python3 or python that exists is used.
+
+set -e
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+if [ -n "$AIORUCKUS_HOOK_PYTHON" ]; then
+    python=$AIORUCKUS_HOOK_PYTHON
+else
+    python=""
+    for candidate in .venv/bin/python python3 python; do
+        if [ -x "$candidate" ] || command -v "$candidate" >/dev/null 2>&1; then
+            python=$candidate
+            break
+        fi
+    done
+fi
+
+if [ -z "$python" ]; then
+    echo "pre-commit: no python interpreter found; skipping tests." >&2
+    exit 0
+fi
+
+if ! "$python" -c "import pytest" >/dev/null 2>&1; then
+    echo "pre-commit: pytest not available in $python; skipping tests." >&2
+    echo "pre-commit: install with 'pip install -e . --group dev' or set AIORUCKUS_HOOK_PYTHON." >&2
+    exit 0
+fi
+
+echo "pre-commit: running test suite ($python)..."
+if ! "$python" -m pytest -q; then
+    echo "" >&2
+    echo "pre-commit: tests failed - commit aborted." >&2
+    echo "pre-commit: fix the failures, or 'git commit --no-verify' to bypass." >&2
+    exit 1
+fi
+
+echo "pre-commit: checking live tests still collect..."
+if ! "$python" -m pytest -m live --collect-only -q >/dev/null; then
+    echo "" >&2
+    echo "pre-commit: live tests failed to collect - commit aborted." >&2
+    exit 1
+fi
+
+echo "pre-commit: OK"
