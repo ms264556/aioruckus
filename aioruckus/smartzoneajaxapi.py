@@ -69,8 +69,13 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
             for wlan in wlans
         ])
 
-    async def get_system_info(self, *sections: SystemStat) -> dict:
-        """Return system information"""
+    async def get_system_info(self, *sections: SystemStat, timeout: int | None = None) -> dict:
+        """Return system information
+
+        This is served from the cached login session info rather than a
+        request, so ``timeout`` is accepted for interface compatibility with
+        :class:`RuckusAjaxApi` and ignored.
+        """
         sz = self.__session.session_info
         assert sz
         return{
@@ -351,6 +356,7 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         self,
         stats_level: StatsLevel | bool = StatsLevel.L1,
         interval_stats: bool | None = None,
+        timeout: int | None = None,
     ) -> list[Client]:
         """Return a list of active clients
 
@@ -358,7 +364,7 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         ``stats_level`` / ``interval_stats`` are accepted for interface
         compatibility with :class:`RuckusAjaxApi` and ignored.
         """
-        clients = await self.__session.query("query/client")
+        clients = await self.__session.query("query/client", timeout=timeout)
         return cast(list[Client], [
             {**client, "mac": client["clientMac"], "ip": client["ipAddress"], "ap": client["apMac"]}
             for client in clients
@@ -376,6 +382,7 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         self,
         stats_level: StatsLevel | bool = StatsLevel.L1,
         interval_stats: bool | None = None,
+        timeout: int | None = None,
     ) -> list[ApStats]:
         """Return a list of AP statistics
 
@@ -383,7 +390,7 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         ``stats_level`` / ``interval_stats`` are accepted for interface
         compatibility with :class:`RuckusAjaxApi` and ignored.
         """
-        aps = await self.__session.query("query/ap")
+        aps = await self.__session.query("query/ap", timeout=timeout)
         return cast(list[ApStats], [
             {**ap, "mac": ap["apMac"], "devname": ap["deviceName"], "firmware-version": ap["firmwareVersion"], "serial-number": ap["serial"]} 
             for ap in aps

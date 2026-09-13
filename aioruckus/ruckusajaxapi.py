@@ -129,11 +129,12 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         assert self.__session is not None
         return await self.__session.get_conf_str(item, timeout)
 
-    async def get_system_info(self, *sections: SystemStat) -> dict:
+    async def get_system_info(self, *sections: SystemStat, timeout: int | None = None) -> dict:
         """Return system information, optionally limited to the given sections.
 
         Args:
             sections: SystemStat sections to fetch; defaults to all sections.
+            timeout: per-request timeout in seconds; defaults to the session's.
         """
         section_keys: list[str]
         if sections:
@@ -144,6 +145,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         section = ''.join(f"<{s}/>" for s in section_keys)
         sysinfo = await self.cmdstat(
             f"<ajax-request action='getstat' comp='system'>{section}</ajax-request>",
+            timeout=timeout,
             target_type=SystemInfo,
         )
         return sysinfo
@@ -152,6 +154,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         self,
         stats_level: StatsLevel | bool = StatsLevel.L1,
         interval_stats: bool | None = None,
+        timeout: int | None = None,
     ) -> list[Client]:
         """Return a list of active clients
 
@@ -164,10 +167,14 @@ class RuckusAjaxApi(RuckusConfigurationApi):
                 parameter name); True requests interval stats (L3), False
                 requests basic stats (L1). Takes precedence over
                 ``stats_level`` when both are provided.
+            timeout: per-request timeout in seconds; defaults to the session's.
+                Level 3 applies it separately to the timestamp and statistics
+                requests, rather than to the entire operation.
         """
         if interval_stats is not None:
             stats_level = interval_stats
-        return await self._get_entity_stats("client", _coerce_stats_level(stats_level), list[Client])
+        return await self._get_entity_stats(
+            "client", _coerce_stats_level(stats_level), list[Client], timeout)
 
     async def get_inactive_clients(self) -> list[Client]:
         """Return a list of inactive clients"""
@@ -177,6 +184,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         self,
         stats_level: StatsLevel | bool = StatsLevel.L1,
         interval_stats: bool | None = None,
+        timeout: int | None = None,
     ) -> list[ApStats]:
         """Return a list of AP statistics
 
@@ -189,10 +197,14 @@ class RuckusAjaxApi(RuckusConfigurationApi):
                 parameter name); True requests interval stats (L3), False
                 requests basic stats (L1). Takes precedence over
                 ``stats_level`` when both are provided.
+            timeout: per-request timeout in seconds; defaults to the session's.
+                Level 3 applies it separately to the timestamp and statistics
+                requests, rather than to the entire operation.
         """
         if interval_stats is not None:
             stats_level = interval_stats
-        return await self._get_entity_stats("ap", _coerce_stats_level(stats_level), list[ApStats])
+        return await self._get_entity_stats(
+            "ap", _coerce_stats_level(stats_level), list[ApStats], timeout)
 
     async def get_ap_group_stats(self) -> list[ApGroup]:
         """Return a list of AP group statistics"""
@@ -201,11 +213,16 @@ class RuckusAjaxApi(RuckusConfigurationApi):
             "<apgroup /></ajax-request>", target_type=list[ApGroup]
         )
 
-    async def get_vap_stats(self) -> list[Vap]:
-        """Return a list of Virtual AP (per-radio WLAN) statistics"""
+    async def get_vap_stats(self, timeout: int | None = None) -> list[Vap]:
+        """Return a list of Virtual AP (per-radio WLAN) statistics
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0' caller='SCI'>"
-            "<vap INTERVAL-STATS='no' LEVEL='1' /></ajax-request>", target_type=list[Vap]
+            "<vap INTERVAL-STATS='no' LEVEL='1' /></ajax-request>",
+            timeout=timeout, target_type=list[Vap]
         )
 
     async def get_wlan_group_stats(self) -> list[WlanGroup]:
@@ -883,13 +900,13 @@ class RuckusAjaxApi(RuckusConfigurationApi):
             acl for acl in await self.get_acls() if acl["name"] == name
         ), None)
 
-    async def _get_timestamp_at_controller(self) -> int:
+    async def _get_timestamp_at_controller(self, timeout: int | None = None) -> int:
         """Get timestamp at controller"""
         ts = ruckus_timestamp()
         time_info = await self.cmdstat(
             f"<ajax-request action='getstat' updater='system.{ts}' comp='system'>"
             f"<time/></ajax-request>",
-            target_type=TimeInfo,
+            timeout=timeout, target_type=TimeInfo,
         )
         return int(time_info["time"]["time"])
 
@@ -898,14 +915,16 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         entity_name: str,
         stats_level: StatsLevel,
         target_type: type,
+        timeout: int | None = None,
     ) -> Any:
         """Fetch entity statistics at the requested detail level.
 
         Level 3 requests 24 hours of interval statistics instead of a single
-        LEVEL snapshot.
+        LEVEL snapshot, which takes two requests; ``timeout`` bounds each of
+        them individually rather than the pair as a whole.
         """
         if stats_level == StatsLevel.L3:
-            endtime = await self._get_timestamp_at_controller()
+            endtime = await self._get_timestamp_at_controller(timeout)
             starttime = endtime - 86400
             entityrequest = (
                 f"<{entity_name} INTERVAL-STATS='yes' "
@@ -916,7 +935,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         return await self.cmdstat(
             f"<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
             f"{entityrequest}</ajax-request>",
-            target_type=target_type,
+            timeout=timeout, target_type=target_type,
         )
 
     async def _cmdstat_noparse(self, data: str, timeout: int | None = None) -> str:

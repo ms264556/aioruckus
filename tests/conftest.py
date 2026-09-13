@@ -281,6 +281,12 @@ def unleashed_callback_factory(child_count):
                 '<interval-stats><stats time="100" tx-bytes="1" /></interval-stats></ap>',
             ]
             content = f"<apstamgr-stat>{''.join(_aps_l3[:child_count])}</apstamgr-stat>"
+        elif "<vap INTERVAL-STATS='no' LEVEL='1' />" in data:
+            _vaps = [
+                '<vap bssid="8c:7a:15:3e:21:d8" ssid="MyWiFi" ap="8c:7a:15:3e:21:d0" '
+                'radio-type="ng" vap-up="1" />',
+            ]
+            content = f"<apstamgr-stat>{''.join(_vaps[:child_count])}</apstamgr-stat>"
         elif data == '<ajax-request action="getstat" comp="cluster"/>' and "cluster" in url.host:
             if "standby" in url.host:
                 content = '<response><xmsg to-state="1" peer-state="0" ip="192.168.0.5" peer-ip="192.168.0.6" mgmt-ip="192.168.0.7" /></response>'
@@ -317,6 +323,30 @@ def set_ajax_results(aiohttp_context):
         )
 
     return _handle_conf
+
+
+@pytest.fixture
+def record_ajax_requests(aiohttp_context):
+    """Serve the usual mock responses, recording the kwargs of each request.
+
+    Returns the list the kwargs are appended to, so a test can assert on what
+    the API layer actually handed to aiohttp.
+    """
+    def _record(child_count=1):
+        calls: list[dict] = []
+        respond = unleashed_callback_factory(child_count)
+
+        def _recording_callback(url, **kwargs):
+            calls.append(kwargs)
+            return respond(url, **kwargs)
+
+        aiohttp_context.post(
+            re.compile(r"^https?://[^/]+/admin(?:10)?/_(?:conf|cmdstat).jsp"),
+            callback=_recording_callback,
+        )
+        return calls
+
+    return _record
 
 def cmdstat_callback(url, **kwargs):
     return CallbackResult(body="\n", status=200)

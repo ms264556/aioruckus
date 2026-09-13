@@ -91,9 +91,9 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         """Return a list of WLANs (WiFi networks)."""
         return await self.__session.query("wifiNetworks/query")
 
-    async def get_system_info(self, *sections: SystemStat) -> dict:
+    async def get_system_info(self, *sections: SystemStat, timeout: int | None = None) -> dict:
         """Return system information"""
-        tenant = await self.__session.get("tenants/self")
+        tenant = await self.__session.get("tenants/self", timeout=timeout)
         return {
             "tenant": tenant,
             "sysinfo": {"version": "R1", "serial": tenant["entitlementId"]},
@@ -202,6 +202,7 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         self,
         stats_level: StatsLevel | bool = StatsLevel.L1,
         interval_stats: bool | None = None,
+        timeout: int | None = None,
     ) -> list[Client]:
         """Return a list of active clients
 
@@ -209,7 +210,7 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         ``stats_level`` / ``interval_stats`` are accepted for interface
         compatibility with :class:`RuckusAjaxApi` and ignored.
         """
-        clients = await self.__session.get("clients")
+        clients = await self.__session.get("clients", timeout=timeout)
         return cast(list[Client], [
             {
                 **client,
@@ -223,6 +224,7 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         self,
         stats_level: StatsLevel | bool = StatsLevel.L1,
         interval_stats: bool | None = None,
+        timeout: int | None = None,
     ) -> list[ApStats]:
         """Return a list of AP statistics
 
@@ -230,7 +232,7 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         ``stats_level`` / ``interval_stats`` are accepted for interface
         compatibility with :class:`RuckusAjaxApi` and ignored.
         """
-        aps = await self.__session.get("venues/aps")
+        aps = await self.__session.get("venues/aps", timeout=timeout)
         return cast(list[ApStats], [
             {
                 **ap,

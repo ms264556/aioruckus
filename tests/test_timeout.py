@@ -6,19 +6,42 @@ on the ``ClientSession``. A ``None`` per-call timeout therefore has to be
 omitted from the request kwargs entirely, so aiohttp falls back to the
 session's own timeout. These tests inspect the kwargs the session actually
 hands to aiohttp.
+
+The stats methods sit on top of that plumbing, so they get the same treatment:
+an explicit timeout has to reach aiohttp, and no timeout at all has to leave
+the session's own timeout in charge.
 """
 
 from __future__ import annotations
+
+import json
+import re
 
 import aiohttp
 import pytest
 from multidict import CIMultiDict, CIMultiDictProxy
 
+from aioruckus.const import StatsLevel
 from aioruckus.ruckusonesession import RuckusOneSession
 from aioruckus.smartzonesession import SmartZoneSession
 from aioruckus.unleashedsession import UnleashedSession
 
+from .mock_aiohttp import CallbackResult
+
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture
+def recorded_requests(aiohttp_context, monkeypatch):
+    calls = []
+    match = aiohttp_context.match
+
+    def _record(method, url, **kwargs):
+        calls.append(kwargs)
+        return match(method, url, **kwargs)
+
+    monkeypatch.setattr(aiohttp_context, "match", _record)
+    return calls
 
 
 class _RecordingResponse:
@@ -128,3 +151,151 @@ async def test_ruckusone_request_omits_timeout_when_none():
     await session._request("get", "tenants/self", timeout=None)
 
     assert "timeout" not in client.calls[-1]
+
+
+async def test_get_system_info_forwards_timeout(create_ajax_session, record_ajax_requests):
+    """get_system_info() hands its timeout to aiohttp."""
+    async with create_ajax_session() as session:
+        calls = record_ajax_requests()
+        await session.api.get_system_info(timeout=7)
+
+    assert calls[-1]["timeout"] == aiohttp.ClientTimeout(total=7)
+
+
+async def test_get_ap_stats_forwards_timeout(create_ajax_session, record_ajax_requests):
+    """get_ap_stats() hands its timeout to aiohttp."""
+    async with create_ajax_session() as session:
+        calls = record_ajax_requests()
+        await session.api.get_ap_stats(timeout=7)
+
+    assert calls[-1]["timeout"] == aiohttp.ClientTimeout(total=7)
+
+
+async def test_get_active_clients_forwards_timeout(create_ajax_session, record_ajax_requests):
+    """get_active_clients() hands its timeout to aiohttp."""
+    async with create_ajax_session() as session:
+        calls = record_ajax_requests()
+        await session.api.get_active_clients(timeout=7)
+
+    assert calls[-1]["timeout"] == aiohttp.ClientTimeout(total=7)
+
+
+async def test_get_vap_stats_forwards_timeout(create_ajax_session, record_ajax_requests):
+    """get_vap_stats() hands its timeout to aiohttp."""
+    async with create_ajax_session() as session:
+        calls = record_ajax_requests()
+        await session.api.get_vap_stats(timeout=7)
+
+    assert calls[-1]["timeout"] == aiohttp.ClientTimeout(total=7)
+
+
+async def test_level_3_stats_forward_timeout_to_every_request(
+    create_ajax_session, record_ajax_requests
+):
+    """Level 3 needs a timestamp first, so both requests carry the timeout."""
+    async with create_ajax_session() as session:
+        calls = record_ajax_requests()
+        await session.api.get_ap_stats(StatsLevel.L3, timeout=7)
+
+    assert len(calls) == 2, "expected a timestamp request followed by a stats request"
+    assert all(call["timeout"] == aiohttp.ClientTimeout(total=7) for call in calls)
+
+
+async def test_stats_methods_omit_timeout_by_default(create_ajax_session, record_ajax_requests):
+    """Without a timeout the session's own timeout stays in charge."""
+    async with create_ajax_session() as session:
+        calls = record_ajax_requests()
+        await session.api.get_system_info()
+        await session.api.get_ap_stats()
+        await session.api.get_active_clients()
+        await session.api.get_vap_stats()
+
+    assert calls, "no requests were recorded"
+    assert not any("timeout" in call for call in calls)
+
+
+@pytest.mark.parametrize("timeout_kwargs", [{}, {"timeout": None}, {"timeout": 7}])
+@pytest.mark.parametrize(
+    "session_fixture, method_name",
+    [
+        ("create_r1_session", "get_system_info"),
+        ("create_r1_session", "get_active_clients"),
+        ("create_r1_session", "get_ap_stats"),
+        ("create_sz_session", "get_active_clients"),
+        ("create_sz_session", "get_ap_stats"),
+    ],
+)
+async def test_shim_methods_forward_timeout(
+    session_fixture, method_name, timeout_kwargs, request, recorded_requests
+):
+    async with request.getfixturevalue(session_fixture)() as session:
+        recorded_requests.clear()
+        await getattr(session.api, method_name)(**timeout_kwargs)
+
+        assert len(recorded_requests) == 1
+        if timeout_kwargs.get("timeout") is None:
+            assert "timeout" not in recorded_requests[0]
+        else:
+            assert recorded_requests[0]["timeout"] == aiohttp.ClientTimeout(total=7)
+
+
+async def test_smartzone_system_info_timeout_uses_cached_result(
+    create_sz_session, recorded_requests
+):
+    async with create_sz_session() as session:
+        recorded_requests.clear()
+        system_info = await session.api.get_system_info(timeout=7)
+
+        assert system_info["sysinfo"]["version"]
+        assert not recorded_requests
+
+
+@pytest.mark.parametrize("timeout_kwargs", [{}, {"timeout": None}, {"timeout": 7}])
+@pytest.mark.parametrize(
+    "method_name, endpoint, item",
+    [
+        (
+            "get_active_clients", "client",
+            {"clientMac": "f0:1d:ab:ad:d0:0d", "ipAddress": "192.168.0.23",
+             "apMac": "8c:7a:15:3e:21:d0"},
+        ),
+        (
+            "get_ap_stats", "ap",
+            {"apMac": "8c:7a:15:3e:21:d0", "deviceName": "AnR650",
+             "firmwareVersion": "5.2.1.0.123", "serial": "302139502811"},
+        ),
+    ],
+)
+async def test_smartzone_stats_forward_timeout_to_every_page(
+    create_sz_session, aiohttp_context, recorded_requests, timeout_kwargs, method_name,
+    endpoint, item,
+):
+    def _page_response(url, **kwargs):
+        page = kwargs["json"]["page"]
+        return CallbackResult(
+            body=json.dumps({
+                "list": [item] * (100 if page == 1 else 1),
+                "hasMore": page == 1,
+                "totalCount": 101,
+            }),
+            headers={"Content-Type": "application/json"},
+        )
+
+    aiohttp_context.post(
+        re.compile(rf"^https://192\.168\.0\.3:8443/wsg/api/public/v9_0/query/{endpoint}\?"),
+        callback=_page_response,
+    )
+
+    async with create_sz_session() as session:
+        recorded_requests.clear()
+        results = await getattr(session.api, method_name)(**timeout_kwargs)
+
+        assert len(results) == 101
+        assert [call["json"]["page"] for call in recorded_requests] == [1, 2]
+        if timeout_kwargs.get("timeout") is None:
+            assert all("timeout" not in call for call in recorded_requests)
+        else:
+            assert all(
+                call["timeout"] == aiohttp.ClientTimeout(total=7)
+                for call in recorded_requests
+            )
