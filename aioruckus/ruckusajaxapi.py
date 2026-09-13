@@ -60,8 +60,13 @@ def _parse_guest_list(xml: str) -> list[Guest]:
 
     ZoneDirector and Unleashed both serve guest passes via a ``getconf``
     resultset whose attributes use ``full-name`` / ``wlan`` instead of
-    ``name`` / ``ssid`` and may carry the pass key as ``x-key`` (possibly
-    duplicated as a plain ``key``); normalize to the shared ``Guest`` shape.
+    ``name`` / ``ssid``; normalize those to the shared ``Guest`` shape.
+
+    This parses the raw response text rather than going through
+    ``_process_ruckus_xml``, so it applies the same ``x-key`` -> ``key``
+    rename itself: the pass code is stored in the clear, so only the prefix
+    is dropped. ZoneDirector additionally serves a plain ``key`` duplicate,
+    which is collapsed onto the single remaining field.
     """
     guests = []
     for guest in ET.fromstring(xml).findall(".//guest"):
@@ -75,8 +80,8 @@ def _parse_guest_list(xml: str) -> list[Guest]:
         else:
             item.pop("wlan", None)  # redundant duplicate of ssid
         if "x-key" in item:
-            # rename to key like the other x-* attributes; a plain ``key``
-            # duplicate (if any) is dropped by the rename
+            # rename to key, mirroring _process_ruckus_xml; a plain ``key``
+            # duplicate (ZoneDirector serves both) is dropped by the rename
             item["key"] = item.pop("x-key")
         guests.append(item)
     return guests
@@ -129,19 +134,17 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         assert self.__session is not None
         return await self.__session.get_conf_str(item, timeout)
 
-    async def get_system_info(self, *sections: SystemStat, timeout: int | None = None) -> dict:
+    async def get_system_info(
+        self, *sections: SystemStat, timeout: int | None = None
+    ) -> dict:
         """Return system information, optionally limited to the given sections.
 
         Args:
             sections: SystemStat sections to fetch; defaults to all sections.
+                Passed positionally — ``timeout`` must be a keyword argument.
             timeout: per-request timeout in seconds; defaults to the session's.
         """
-        section_keys: list[str]
-        if sections:
-            section_keys = [s for section_list in sections for s in section_list.value]
-        else:
-            section_keys = SystemStat.DEFAULT.value
-            
+        section_keys = self._section_keys(sections)
         section = ''.join(f"<{s}/>" for s in section_keys)
         sysinfo = await self.cmdstat(
             f"<ajax-request action='getstat' comp='system'>{section}</ajax-request>",
@@ -176,9 +179,17 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         return await self._get_entity_stats(
             "client", _coerce_stats_level(stats_level), list[Client], timeout)
 
-    async def get_inactive_clients(self) -> list[Client]:
-        """Return a list of inactive clients"""
-        return await self.cmdstat("<ajax-request action='getstat' comp='stamgr' enable-gzip='0'><clientlist period='0' /></ajax-request>", target_type=list[Client])
+    async def get_inactive_clients(self, timeout: int | None = None) -> list[Client]:
+        """Return a list of inactive clients
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        return await self.cmdstat(
+            "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
+            "<clientlist period='0' /></ajax-request>",
+            timeout=timeout, target_type=list[Client]
+        )
 
     async def get_ap_stats(
         self,
@@ -206,11 +217,16 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         return await self._get_entity_stats(
             "ap", _coerce_stats_level(stats_level), list[ApStats], timeout)
 
-    async def get_ap_group_stats(self) -> list[ApGroup]:
-        """Return a list of AP group statistics"""
+    async def get_ap_group_stats(self, timeout: int | None = None) -> list[ApGroup]:
+        """Return a list of AP group statistics
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
-            "<apgroup /></ajax-request>", target_type=list[ApGroup]
+            "<apgroup /></ajax-request>",
+            timeout=timeout, target_type=list[ApGroup]
         )
 
     async def get_vap_stats(self, timeout: int | None = None) -> list[Vap]:
@@ -225,18 +241,28 @@ class RuckusAjaxApi(RuckusConfigurationApi):
             timeout=timeout, target_type=list[Vap]
         )
 
-    async def get_wlan_group_stats(self) -> list[WlanGroup]:
-        """Return a list of WLAN group statistics"""
+    async def get_wlan_group_stats(self, timeout: int | None = None) -> list[WlanGroup]:
+        """Return a list of WLAN group statistics
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0' caller='SCI'>"
-            "<wlangroup /></ajax-request>", target_type=list[WlanGroup]
+            "<wlangroup /></ajax-request>",
+            timeout=timeout, target_type=list[WlanGroup]
         )
 
-    async def get_dpsk_stats(self) -> list[Dpsk]:
-        """Return a list of DPSK statistics"""
+    async def get_dpsk_stats(self, timeout: int | None = None) -> list[Dpsk]:
+        """Return a list of DPSK statistics
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
         return await self.cmdstat(
             "<ajax-request action='getstat' comp='stamgr' enable-gzip='0'>"
-            "<dpsklist /></ajax-request>", target_type=list[Dpsk]
+            "<dpsklist /></ajax-request>",
+            timeout=timeout, target_type=list[Dpsk]
         )
 
     async def _zd_create_guest_form(

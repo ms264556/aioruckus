@@ -38,17 +38,30 @@ class RuckusConfigurationApi(ABC):
         """Initialize the API with the given session."""
         self.session = session
 
-    async def get_aps(self) -> list[Ap]:
-        """Return a list of APs"""
-        return await self._get_conf(ConfigItem.AP_LIST, target_type=list[Ap])
+    async def get_aps(self, timeout: int | None = None) -> list[Ap]:
+        """Return a list of APs
 
-    async def get_ap_groups(self) -> list[ApGroup]:
-        """Return a list of AP groups"""
-        ap_map = {ap['id']: ap for ap in await self.get_aps()}
-        wlan_map = {wlan['id']: wlan for wlan in await self.get_wlans()}
-        wlang_map = {wlang['id']: wlang for wlang in await self.get_wlan_groups()}
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        return await self._get_conf(
+            ConfigItem.AP_LIST, target_type=list[Ap], timeout=timeout
+        )
+
+    async def get_ap_groups(self, timeout: int | None = None) -> list[ApGroup]:
+        """Return a list of AP groups
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+                Applies to each of the four requests this makes (APs, WLANs,
+                WLAN groups and the group list) rather than to the whole
+                operation.
+        """
+        ap_map = {ap['id']: ap for ap in await self.get_aps(timeout=timeout)}
+        wlan_map = {wlan['id']: wlan for wlan in await self.get_wlans(timeout=timeout)}
+        wlang_map = {wlang['id']: wlang for wlang in await self.get_wlan_groups(timeout=timeout)}
         ap_groups = await self._get_conf(
-            ConfigItem.APGROUP_LIST, target_type=list[ApGroup]
+            ConfigItem.APGROUP_LIST, target_type=list[ApGroup], timeout=timeout
         )
         for ap_group in ap_groups:
             # replace ap links with ap objects
@@ -89,18 +102,27 @@ class RuckusConfigurationApi(ABC):
                         del radio["wlangroup-id"]
         return ap_groups
 
-    async def get_wlans(self) -> list[Wlan]:
-        """Return a list of WLANs"""
-        wlans = await self._get_conf(ConfigItem.WLANSVC_LIST, target_type=list[Wlan])
+    async def get_wlans(self, timeout: int | None = None) -> list[Wlan]:
+        """Return a list of WLANs
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+                Applies to each of the eight requests this makes (the WLAN list
+                plus the policy lists it resolves) rather than to the whole
+                operation.
+        """
+        wlans = await self._get_conf(
+            ConfigItem.WLANSVC_LIST, target_type=list[Wlan], timeout=timeout
+        )
         if wlans:
             acl_list, urlfilter_list, precedence_list, devicepolicy_list, arcpolicy_list, policy_list, policy6_list = await asyncio.gather(
-                self.get_acls(),
-                self.get_urlfiltering_policies(),
-                self.get_precedence_policies(),
-                self.get_device_policies(),
-                self.get_arc_policies(),
-                self.get_ip4_policies(),
-                self.get_ip6_policies()
+                self.get_acls(timeout=timeout),
+                self.get_urlfiltering_policies(timeout=timeout),
+                self.get_precedence_policies(timeout=timeout),
+                self.get_device_policies(timeout=timeout),
+                self.get_arc_policies(timeout=timeout),
+                self.get_ip4_policies(timeout=timeout),
+                self.get_ip6_policies(timeout=timeout)
             )
             acl_map = {policy['id']: policy for policy in acl_list}
             urlfilter_map = {policy['id']: policy for policy in urlfilter_list}
@@ -154,10 +176,18 @@ class RuckusConfigurationApi(ABC):
                     wlan.pop("avp-policy", None)
         return wlans
 
-    async def get_wlan_groups(self) -> list[WlanGroup]:
-        """Return a list of WLAN groups"""
-        wlan_map = {wlan['id']: wlan for wlan in await self.get_wlans()}
-        wlan_groups = await self._get_conf(ConfigItem.WLANGROUP_LIST, target_type=list[WlanGroup])
+    async def get_wlan_groups(self, timeout: int | None = None) -> list[WlanGroup]:
+        """Return a list of WLAN groups
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+                Applies to each of the requests this makes (the WLAN list and
+                the group list) rather than to the whole operation.
+        """
+        wlan_map = {wlan['id']: wlan for wlan in await self.get_wlans(timeout=timeout)}
+        wlan_groups = await self._get_conf(
+            ConfigItem.WLANGROUP_LIST, target_type=list[WlanGroup], timeout=timeout
+        )
         for wlan_group in wlan_groups:
             if "wlansvc" in wlan_group:
                 wlan_group["wlansvc"] = [
@@ -166,13 +196,19 @@ class RuckusConfigurationApi(ABC):
                 ]
         return wlan_groups
 
-    async def get_urlfiltering_policies(self) -> list[UrlFilter]:
-        """Return a list of URL Filtering Policies"""
+    async def get_urlfiltering_policies(self, timeout: int | None = None) -> list[UrlFilter]:
+        """Return a list of URL Filtering Policies
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
         try:
-            policies = await self._get_conf(ConfigItem.URLFILTERINGPOLICY_LIST, target_type=list[UrlFilter])
+            policies = await self._get_conf(
+                ConfigItem.URLFILTERINGPOLICY_LIST, target_type=list[UrlFilter], timeout=timeout
+            )
         except KeyError:
             return []
-        block_map = {category['id']: category for category in await self.get_urlfiltering_blockingcategories()}
+        block_map = {category['id']: category for category in await self.get_urlfiltering_blockingcategories(timeout=timeout)}
         for policy in policies:
             if "blockcategories" in policy and policy["blockcategories"]:
                 split_categories = policy["blockcategories"].split(",")
@@ -195,32 +231,67 @@ class RuckusConfigurationApi(ABC):
             policy.pop("whitelist-num", None)
         return policies
 
-    async def get_urlfiltering_blockingcategories(self) -> list[UrlBlockCategory]:
-        """Return a list of URL Filtering Blocking Categories"""
+    async def get_urlfiltering_blockingcategories(
+        self, timeout: int | None = None
+    ) -> list[UrlBlockCategory]:
+        """Return a list of URL Filtering Blocking Categories
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
         try:
-            return await self._get_conf(ConfigItem.URLFILTERINGCATEGORY_LIST, target_type=list[UrlBlockCategory])
+            return await self._get_conf(
+                ConfigItem.URLFILTERINGCATEGORY_LIST,
+                target_type=list[UrlBlockCategory], timeout=timeout
+            )
         except KeyError:
             return [{"id": k, "name": v} for k, v in URL_FILTERING_CATEGORIES.items()]
 
-    async def get_ip4_policies(self) -> list[Ip4Policy]:
-        """Return a list of IP4 Policies"""
-        return await self._get_conf(ConfigItem.POLICY_LIST, target_type=list[Ip4Policy])
+    async def get_ip4_policies(self, timeout: int | None = None) -> list[Ip4Policy]:
+        """Return a list of IP4 Policies
 
-    async def get_ip6_policies(self) -> list[Ip6Policy]:
-        """Return a list of IP6 Policies"""
-        return await self._get_conf(ConfigItem.POLICY6_LIST, target_type=list[Ip6Policy])
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        return await self._get_conf(
+            ConfigItem.POLICY_LIST, target_type=list[Ip4Policy], timeout=timeout
+        )
 
-    async def get_device_policies(self) -> list[DevicePolicy]:
-        """Return a list of Device Policies"""
+    async def get_ip6_policies(self, timeout: int | None = None) -> list[Ip6Policy]:
+        """Return a list of IP6 Policies
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        return await self._get_conf(
+            ConfigItem.POLICY6_LIST, target_type=list[Ip6Policy], timeout=timeout
+        )
+
+    async def get_device_policies(self, timeout: int | None = None) -> list[DevicePolicy]:
+        """Return a list of Device Policies
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
         try:
-            return await self._get_conf(ConfigItem.DEVICEPOLICY_LIST, target_type=list[DevicePolicy])
+            return await self._get_conf(
+                ConfigItem.DEVICEPOLICY_LIST, target_type=list[DevicePolicy], timeout=timeout
+            )
         except KeyError:
             return []
 
-    async def get_precedence_policies(self) -> list[PrecedencePolicy]:
-        """Return a list of Precedence Policies"""
+    async def get_precedence_policies(
+        self, timeout: int | None = None
+    ) -> list[PrecedencePolicy]:
+        """Return a list of Precedence Policies
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
         try:
-            policies = await self._get_conf(ConfigItem.PRECEDENCE_LIST, target_type=list[PrecedencePolicy])
+            policies = await self._get_conf(
+                ConfigItem.PRECEDENCE_LIST, target_type=list[PrecedencePolicy], timeout=timeout
+            )
             for policy in policies:
                 if "prerule" in policy:
                     for prerule in policy["prerule"]:
@@ -229,41 +300,72 @@ class RuckusConfigurationApi(ABC):
         except KeyError:
             return [{'id': '1', 'name': 'Default', 'EDITABLE': 'true', 'prerule': [{'description': '', 'attr': 'vlan', 'order': ['AAA', 'Device Policy', 'WLAN'], 'EDITABLE': 'false'}, {'description': '', 'attr': 'rate-limit', 'order': ['AAA', 'Device Policy', 'WLAN'], 'EDITABLE': 'false'}]}]
 
-    async def get_arc_policies(self) -> list[ArcPolicy]:
-        """Return a list of Application Recognition & Control Policies"""
-        return await self._get_conf(ConfigItem.AVPPOLICY_LIST, target_type=list[ArcPolicy])
+    async def get_arc_policies(self, timeout: int | None = None) -> list[ArcPolicy]:
+        """Return a list of Application Recognition & Control Policies
 
-    async def get_arc_applications(self) -> list[ArcApplication]:
-        """Return a list of Application Recognition & Control User Defined Applications"""
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        return await self._get_conf(
+            ConfigItem.AVPPOLICY_LIST, target_type=list[ArcPolicy], timeout=timeout
+        )
+
+    async def get_arc_applications(
+        self, timeout: int | None = None
+    ) -> list[ArcApplication]:
+        """Return a list of Application Recognition & Control User Defined Applications
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
         try:
-            return await self._get_conf(ConfigItem.AVPAPPLICATION_LIST, target_type=list[ArcApplication])
+            return await self._get_conf(
+                ConfigItem.AVPAPPLICATION_LIST,
+                target_type=list[ArcApplication], timeout=timeout
+            )
         except KeyError:
             return []
 
-    async def get_arc_ports(self) -> list[ArcPort]:
-        """Return a list of Application Recognition & Control User Defined Ports"""
+    async def get_arc_ports(self, timeout: int | None = None) -> list[ArcPort]:
+        """Return a list of Application Recognition & Control User Defined Ports
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
         try:
-            return await self._get_conf(ConfigItem.AVPPORT_LIST, target_type=list[ArcPort])
+            return await self._get_conf(
+                ConfigItem.AVPPORT_LIST, target_type=list[ArcPort], timeout=timeout
+            )
         except KeyError:
             return []
 
-    async def get_roles(self) -> list[Role]:
-        """Return a list of Roles"""
-        wlan_map = {wlan['id']: wlan for wlan in await self.get_wlans()}
-        return await self.__get_roles(wlan_map)
+    async def get_roles(self, timeout: int | None = None) -> list[Role]:
+        """Return a list of Roles
 
-    async def __get_roles(self, wlan_map: dict[str, Wlan]) -> list[Role]:
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+                Applies to each of the requests this makes rather than to the
+                whole operation.
+        """
+        wlan_map = {wlan['id']: wlan for wlan in await self.get_wlans(timeout=timeout)}
+        return await self.__get_roles(wlan_map, timeout)
+
+    async def __get_roles(
+        self, wlan_map: dict[str, Wlan], timeout: int | None = None
+    ) -> list[Role]:
         """Return a list of Roles"""
         try:
-            roles = await self._get_conf(ConfigItem.ROLE_LIST, target_type=list[Role])
+            roles = await self._get_conf(
+                ConfigItem.ROLE_LIST, target_type=list[Role], timeout=timeout
+            )
         except KeyError:
             return []
         urlfilter_list, devicepolicy_list, arcpolicy_list, policy_list, policy6_list = await asyncio.gather(
-            self.get_urlfiltering_policies(),
-            self.get_device_policies(),
-            self.get_arc_policies(),
-            self.get_ip4_policies(),
-            self.get_ip6_policies()
+            self.get_urlfiltering_policies(timeout=timeout),
+            self.get_device_policies(timeout=timeout),
+            self.get_arc_policies(timeout=timeout),
+            self.get_ip4_policies(timeout=timeout),
+            self.get_ip6_policies(timeout=timeout)
         )
         urlfilter_map = {policy['id']: policy for policy in urlfilter_list}
         devicepolicy_map = {policy['id']: policy for policy in devicepolicy_list}
@@ -298,14 +400,22 @@ class RuckusConfigurationApi(ABC):
                 del role["policy6-id"]
         return roles
 
-    async def get_dpsks(self) -> list[Dpsk]:
-        """Return a list of DPSKs"""
+    async def get_dpsks(self, timeout: int | None = None) -> list[Dpsk]:
+        """Return a list of DPSKs
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+                Applies to each of the requests this makes rather than to the
+                whole operation.
+        """
         try:
-            dpsks = await self._get_conf(ConfigItem.DPSK_LIST, target_type=list[Dpsk])
+            dpsks = await self._get_conf(
+                ConfigItem.DPSK_LIST, target_type=list[Dpsk], timeout=timeout
+            )
         except KeyError:
             return []
-        wlan_map = {wlan['id']: wlan for wlan in await self.get_wlans()}
-        role_map = {role['id']: role for role in await self.__get_roles(wlan_map)}
+        wlan_map = {wlan['id']: wlan for wlan in await self.get_wlans(timeout=timeout)}
+        role_map = {role['id']: role for role in await self.__get_roles(wlan_map, timeout)}
         for dpsk in dpsks:
             if "wlansvc-id" in dpsk:
                 dpsk["wlansvc"] = deepcopy(wlan_map[dpsk["wlansvc-id"]])
@@ -316,42 +426,92 @@ class RuckusConfigurationApi(ABC):
                 del dpsk["role-id"]
         return dpsks
 
-    async def get_system_info(self, *sections: SystemStat) -> dict:
-        """Return system information"""
-        system_info = await self._get_conf(ConfigItem.SYSTEM, target_type=SystemInfo)
-        
-        section_keys: list[str]
-        if sections:
-            section_keys = [s for section_list in sections for s in section_list.value]
-        else:
-            section_keys = SystemStat.DEFAULT.value
+    async def get_system_info(
+        self, *sections: SystemStat, timeout: int | None = None
+    ) -> dict:
+        """Return system information, optionally limited to the given sections.
+
+        Args:
+            sections: SystemStat sections to fetch; defaults to
+                ``SystemStat.DEFAULT``. Passed positionally — ``timeout`` must
+                be a keyword argument.
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        section_keys = self._section_keys(sections)
+        system_info = await self._get_conf(
+            ConfigItem.SYSTEM, target_type=SystemInfo, timeout=timeout
+        )
         if not section_keys:
             return system_info
         return {k: v for k, v in system_info.items() if k in section_keys}
 
-    async def get_mesh_info(self) -> Mesh:
-        """Return mesh information"""
-        return await self._get_conf(ConfigItem.MESH_LIST, target_type=Mesh)
-    
-    async def get_zerotouch_mesh_ap_serials(self) -> list[dict]:
-        """Return a list of Pre-approved AP serial numbers"""
-        return await self._get_conf(ConfigItem.ZTMESHSERIAL_LIST, target_type=list[dict])
+    @staticmethod
+    def _section_keys(sections: tuple[SystemStat, ...]) -> list[str]:
+        """Flatten the SystemStat sections passed to ``get_system_info``.
 
-    async def get_acls(self) -> list[L2Policy]:
-        """Return a list of ACLs"""
+        ``get_system_info`` takes sections as varargs, so a stray positional
+        argument of any type is silently swallowed into ``sections`` and then
+        either breaks later with a confusing error or, worse, is ignored. Since
+        ``timeout`` can only be passed by keyword as a result, reject anything
+        that is not a SystemStat up front and point at the right call.
+        """
+        for section in sections:
+            if not isinstance(section, SystemStat):
+                raise TypeError(
+                    f"get_system_info() sections must be SystemStat members, "
+                    f"got {section!r}; pass timeout as a keyword argument."
+                )
+        if not sections:
+            return SystemStat.DEFAULT.value
+        return [key for section in sections for key in section.value]
+
+    async def get_mesh_info(self, timeout: int | None = None) -> Mesh:
+        """Return mesh information
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        return await self._get_conf(
+            ConfigItem.MESH_LIST, target_type=Mesh, timeout=timeout
+        )
+
+    async def get_zerotouch_mesh_ap_serials(
+        self, timeout: int | None = None
+    ) -> list[dict]:
+        """Return a list of Pre-approved AP serial numbers
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        return await self._get_conf(
+            ConfigItem.ZTMESHSERIAL_LIST, target_type=list[dict], timeout=timeout
+        )
+
+    async def get_acls(self, timeout: int | None = None) -> list[L2Policy]:
+        """Return a list of ACLs
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
         try:
-            return await self._get_conf(ConfigItem.ACL_LIST, target_type=list[L2Policy])
+            return await self._get_conf(
+                ConfigItem.ACL_LIST, target_type=list[L2Policy], timeout=timeout
+            )
         except KeyError:
             return []
 
-    async def get_blocked_client_macs(self) -> list[L2Rule]:
-        """Return a list of blocked client MACs"""
-        acls = await self.get_acls()
+    async def get_blocked_client_macs(self, timeout: int | None = None) -> list[L2Rule]:
+        """Return a list of blocked client MACs
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        acls = await self.get_acls(timeout=timeout)
         # blocklist is always first acl
         return acls[0].get("deny", []) if acls else []
 
     async def _get_conf(
-        self, item: ConfigItem, target_type: type | None = None
+        self, item: ConfigItem, target_type: type | None = None, timeout: int | None = None
     ) -> Any:
         """Return the relevant config xml, given a configuration key.
 
@@ -359,7 +519,7 @@ class RuckusConfigurationApi(ABC):
         TypedDict (or ``dict`` / ``list``) as ``target_type`` to describe
         the desired structure.
         """
-        result_text = await self.session.get_conf_str(item)
+        result_text = await self.session.get_conf_str(item, timeout)
         return parse_ajax_response(result_text, target_type)
 
     @staticmethod

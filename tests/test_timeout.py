@@ -162,6 +162,43 @@ async def test_get_system_info_forwards_timeout(create_ajax_session, record_ajax
     assert calls[-1]["timeout"] == aiohttp.ClientTimeout(total=7)
 
 
+@pytest.mark.parametrize(
+    "method_name",
+    [
+        "get_ap_group_stats",
+        "get_wlan_group_stats",
+        "get_dpsk_stats",
+        "get_inactive_clients",
+        "get_aps",
+        "get_acls",
+        "get_mesh_info",
+        "get_zerotouch_mesh_ap_serials",
+    ],
+)
+async def test_stats_and_list_getters_forward_timeout(
+    create_ajax_session, record_ajax_requests, method_name
+):
+    """The remaining stats/list getters hand their timeout to aiohttp.
+
+    The shared mock does not answer every endpoint these methods use, so some
+    raise once the response fails to parse. The request is issued before that
+    happens, which is what this test asserts on.
+    """
+    async with create_ajax_session() as session:
+        calls = record_ajax_requests()
+        try:
+            await getattr(session.api, method_name)(timeout=7)
+        except RuntimeError:
+            # "The command was not understood": the mock has no payload for
+            # this endpoint, so the request went out and the parse failed.
+            pass
+
+    assert calls, f"{method_name} issued no request"
+    assert all(
+        call["timeout"] == aiohttp.ClientTimeout(total=7) for call in calls
+    ), f"{method_name} dropped the timeout on at least one request"
+
+
 async def test_get_ap_stats_forwards_timeout(create_ajax_session, record_ajax_requests):
     """get_ap_stats() hands its timeout to aiohttp."""
     async with create_ajax_session() as session:
@@ -214,43 +251,77 @@ async def test_stats_methods_omit_timeout_by_default(create_ajax_session, record
     assert not any("timeout" in call for call in calls)
 
 
-@pytest.mark.parametrize("timeout_kwargs", [{}, {"timeout": None}, {"timeout": 7}])
+@pytest.mark.parametrize(
+    "timeout_kwargs, expected",
+    [
+        ({}, "absent"),
+        ({"timeout": None}, "absent"),
+        ({"timeout": 7}, aiohttp.ClientTimeout(total=7)),
+        ({"timeout": 30}, aiohttp.ClientTimeout(total=30)),
+    ],
+)
 @pytest.mark.parametrize(
     "session_fixture, method_name",
     [
         ("create_r1_session", "get_system_info"),
         ("create_r1_session", "get_active_clients"),
         ("create_r1_session", "get_ap_stats"),
+        ("create_r1_session", "get_aps"),
+        ("create_r1_session", "get_wlans"),
+        ("create_r1_session", "get_mesh_info"),
         ("create_sz_session", "get_active_clients"),
+        ("create_sz_session", "get_inactive_clients"),
         ("create_sz_session", "get_ap_stats"),
+        ("create_sz_session", "get_aps"),
+        ("create_sz_session", "get_wlans"),
     ],
 )
 async def test_shim_methods_forward_timeout(
-    session_fixture, method_name, timeout_kwargs, request, recorded_requests
+    session_fixture, method_name, timeout_kwargs, expected, request, recorded_requests
 ):
+    """Each shim forwards the timeout it was actually given.
+
+    Omitting the argument and passing ``None`` both mean "leave the session's
+    timeout in charge", so the kwarg must be absent; any other value must be
+    forwarded as-is rather than being replaced by a fixed default.
+    """
     async with request.getfixturevalue(session_fixture)() as session:
         recorded_requests.clear()
         await getattr(session.api, method_name)(**timeout_kwargs)
 
         assert len(recorded_requests) == 1
-        if timeout_kwargs.get("timeout") is None:
+        if expected == "absent":
             assert "timeout" not in recorded_requests[0]
         else:
-            assert recorded_requests[0]["timeout"] == aiohttp.ClientTimeout(total=7)
+            assert recorded_requests[0]["timeout"] == expected
 
 
 async def test_smartzone_system_info_timeout_uses_cached_result(
     create_sz_session, recorded_requests
 ):
+    """SmartZone system info is built entirely from the cached login session.
+
+    It is documented as ignoring ``timeout`` because it issues no requests; if
+    that ever stops being true the docstring and this test both need updating.
+    """
     async with create_sz_session() as session:
         recorded_requests.clear()
         system_info = await session.api.get_system_info(timeout=7)
 
         assert system_info["sysinfo"]["version"]
-        assert not recorded_requests
+        assert system_info["identity"]["name"]
+        assert not recorded_requests, "get_system_info unexpectedly made a request"
 
 
-@pytest.mark.parametrize("timeout_kwargs", [{}, {"timeout": None}, {"timeout": 7}])
+@pytest.mark.parametrize(
+    "timeout_kwargs, expected",
+    [
+        ({}, "absent"),
+        ({"timeout": None}, "absent"),
+        ({"timeout": 7}, aiohttp.ClientTimeout(total=7)),
+        ({"timeout": 30}, aiohttp.ClientTimeout(total=30)),
+    ],
+)
 @pytest.mark.parametrize(
     "method_name, endpoint, item",
     [
@@ -267,9 +338,10 @@ async def test_smartzone_system_info_timeout_uses_cached_result(
     ],
 )
 async def test_smartzone_stats_forward_timeout_to_every_page(
-    create_sz_session, aiohttp_context, recorded_requests, timeout_kwargs, method_name,
-    endpoint, item,
+    create_sz_session, aiohttp_context, recorded_requests, timeout_kwargs, expected,
+    method_name, endpoint, item,
 ):
+    """Every page of a paginated query carries the caller's timeout."""
     def _page_response(url, **kwargs):
         page = kwargs["json"]["page"]
         return CallbackResult(
@@ -292,10 +364,9 @@ async def test_smartzone_stats_forward_timeout_to_every_page(
 
         assert len(results) == 101
         assert [call["json"]["page"] for call in recorded_requests] == [1, 2]
-        if timeout_kwargs.get("timeout") is None:
+        if expected == "absent":
             assert all("timeout" not in call for call in recorded_requests)
         else:
             assert all(
-                call["timeout"] == aiohttp.ClientTimeout(total=7)
-                for call in recorded_requests
+                call["timeout"] == expected for call in recorded_requests
             )

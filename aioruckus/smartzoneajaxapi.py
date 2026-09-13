@@ -53,29 +53,47 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         """Close the underlying HTTPS session."""
         await self.__session.close()
 
-    async def get_aps(self) -> list[Ap]:
-        """Return a list of APs"""
-        aps = await self.__session.query("query/ap")
+    async def get_aps(self, timeout: int | None = None) -> list[Ap]:
+        """Return a list of APs
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        aps = await self.__session.query("query/ap", timeout=timeout)
         return cast(list[Ap], [
             {**ap, "id": ap["apMac"], "mac": ap["apMac"], "devname": ap["deviceName"], "version": ap["firmwareVersion"]} 
             for ap in aps
         ])
 
-    async def get_wlans(self) -> list[Wlan]:
-        """Return a list of WLANs"""
-        wlans = await self.__session.query("query/wlan")
+    async def get_wlans(self, timeout: int | None = None) -> list[Wlan]:
+        """Return a list of WLANs
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        wlans = await self.__session.query("query/wlan", timeout=timeout)
         return cast(list[Wlan], [
             {**wlan, "id": wlan["wlanId"]}
             for wlan in wlans
         ])
 
-    async def get_system_info(self, *sections: SystemStat, timeout: int | None = None) -> dict:
+    async def get_system_info(
+        self, *sections: SystemStat, timeout: int | None = None
+    ) -> dict:
         """Return system information
 
-        This is served from the cached login session info rather than a
-        request, so ``timeout`` is accepted for interface compatibility with
-        :class:`RuckusAjaxApi` and ignored.
+        Args:
+            sections: SystemStat sections to fetch; accepted for interface
+                compatibility with :class:`RuckusAjaxApi` and ignored.
+            timeout: accepted for interface compatibility with
+                :class:`RuckusAjaxApi` and ignored, because this method issues
+                no requests. Both ``sysinfo`` (built from ``session_info``) and
+                ``identity`` (from :meth:`get_mesh_info`, which also reads
+                ``session_info``) come from the session state cached at login;
+                the ``controlPlanes`` lookup that populates ``cpName`` and
+                ``cpSerialNumber`` happens during login, not here.
         """
+        self._section_keys(sections)
         sz = self.__session.session_info
         assert sz
         return{
@@ -83,8 +101,14 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
             "identity": await self.get_mesh_info()
         }
 
-    async def get_mesh_info(self) -> Mesh:
-        """Return dummy mesh information"""
+    async def get_mesh_info(self, timeout: int | None = None) -> Mesh:
+        """Return dummy mesh information
+
+        Args:
+            timeout: accepted for interface compatibility with
+                :class:`RuckusAjaxApi` and ignored; the name comes from the
+                session info cached at login, so no request is made.
+        """
         # Mesh is per-zone in SmartZone. But we need to implement this because
         # Home Assistant uses the mesh name as the display name for any Ruckus
         # network. We will use the Partner Domain or Cluster Name if available.
@@ -92,9 +116,13 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
         assert sz
         return { "name": sz.get("partnerDomain") or sz.get("cpName", "SmartZone") }
 
-    async def get_blocked_client_macs(self) -> list[L2Rule]:
-        """Return a list of blocked client MACs"""
-        blocks = await self.__session.query("blockClient/query")
+    async def get_blocked_client_macs(self, timeout: int | None = None) -> list[L2Rule]:
+        """Return a list of blocked client MACs
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        blocks = await self.__session.query("blockClient/query", timeout=timeout)
         mac_key = itemgetter('mac')
         blocks.sort(key=mac_key)
         return cast(list[L2Rule], [
@@ -370,9 +398,13 @@ class SmartZoneAjaxApi(RuckusAjaxApi):
             for client in clients
         ])
 
-    async def get_inactive_clients(self) -> list[Client]:
-        """Return a list of inactive clients"""
-        clients = await self.__session.query("query/historicalclient")
+    async def get_inactive_clients(self, timeout: int | None = None) -> list[Client]:
+        """Return a list of inactive clients
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        clients = await self.__session.query("query/historicalclient", timeout=timeout)
         return cast(list[Client], [
             {**client, "mac": client["clientMac"], "ip": client["ipAddress"], "ap": client["apMac"]}
             for client in clients

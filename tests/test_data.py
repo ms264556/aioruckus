@@ -105,6 +105,50 @@ async def test_sys_info(create_ajax_session, set_ajax_results):
         assert system_info["sysinfo"]["serial"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "session_fixture", ["create_ajax_session", "create_r1_session", "create_sz_session"]
+)
+async def test_system_info_rejects_non_systemstat_sections(session_fixture, request):
+    """A stray positional is not silently swallowed into ``sections``.
+
+    ``timeout`` is keyword-only because ``sections`` is varargs, so
+    ``get_system_info(7)`` has to fail loudly rather than treat the 7 as a
+    section and drop it.
+    """
+    async with request.getfixturevalue(session_fixture)() as session:
+        with pytest.raises(TypeError, match="SystemStat"):
+            await session.api.get_system_info(7)
+        with pytest.raises(TypeError, match="keyword argument"):
+            await session.api.get_system_info("sysinfo")
+
+
+@pytest.mark.asyncio
+async def test_system_info_multiple_sections(create_ajax_session, record_ajax_requests):
+    """Several sections are flattened into a single request's section list."""
+    async with create_ajax_session() as session:
+        calls = record_ajax_requests()
+        await session.api.get_system_info(SystemStat.SYSINFO, SystemStat.IDENTITY)
+
+    assert calls[-1]["data"] == (
+        "<ajax-request action='getstat' comp='system'>"
+        "<sysinfo/><identity/></ajax-request>"
+    )
+
+
+@pytest.mark.asyncio
+async def test_system_info_default_sections(create_ajax_session, record_ajax_requests):
+    """Without sections, the DEFAULT section keys are requested."""
+    async with create_ajax_session() as session:
+        calls = record_ajax_requests()
+        await session.api.get_system_info()
+
+    assert calls[-1]["data"] == (
+        "<ajax-request action='getstat' comp='system'>"
+        "<identity/><sysinfo/><port/><unleashed-network/></ajax-request>"
+    )
+
+
 
 @pytest.mark.asyncio
 async def test_r1_aps(create_r1_session):

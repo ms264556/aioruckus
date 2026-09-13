@@ -72,9 +72,13 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
         """Close the underlying HTTPS session."""
         await self.__session.close()
 
-    async def get_aps(self) -> list[Ap]:
-        """Return a list of APs"""
-        aps = await self.__session.query("venues/aps/query")
+    async def get_aps(self, timeout: int | None = None) -> list[Ap]:
+        """Return a list of APs
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        aps = await self.__session.query("venues/aps/query", timeout=timeout)
         return cast(list[Ap], [
             {
                 **ap,
@@ -87,12 +91,25 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
             for ap in aps
         ])
     
-    async def get_wlans(self) -> list[Wlan]:
-        """Return a list of WLANs (WiFi networks)."""
-        return await self.__session.query("wifiNetworks/query")
+    async def get_wlans(self, timeout: int | None = None) -> list[Wlan]:
+        """Return a list of WLANs (WiFi networks).
 
-    async def get_system_info(self, *sections: SystemStat, timeout: int | None = None) -> dict:
-        """Return system information"""
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        return await self.__session.query("wifiNetworks/query", timeout=timeout)
+
+    async def get_system_info(
+        self, *sections: SystemStat, timeout: int | None = None
+    ) -> dict:
+        """Return system information
+
+        Args:
+            sections: SystemStat sections to fetch; accepted for interface
+                compatibility with :class:`RuckusAjaxApi` and ignored.
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
+        self._section_keys(sections)
         tenant = await self.__session.get("tenants/self", timeout=timeout)
         return {
             "tenant": tenant,
@@ -100,12 +117,16 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
             "identity": {"name": tenant["name"]},
         }
 
-    async def get_mesh_info(self) -> Mesh:
-        """Return dummy mesh information"""
+    async def get_mesh_info(self, timeout: int | None = None) -> Mesh:
+        """Return dummy mesh information
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+        """
         # We need to implement this because Home Assistant uses the mesh
         # name as the display name for any Ruckus network.
         # We will use the Tenant Name instead.
-        return await self.__session.get("tenants/self")
+        return await self.__session.get("tenants/self", timeout=timeout)
     
     #
     # Client blocking is not supported on Ruckus One.
@@ -114,9 +135,15 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
     # don't already have an L2 ACL.
     #
 
-    async def get_blocked_client_macs(self) -> list[L2Rule]:
-        """Return a list of blocked client MACs"""
-        acl = await self._query_l2_policy(R1_CLIENT_BLOCK_NAME)
+    async def get_blocked_client_macs(self, timeout: int | None = None) -> list[L2Rule]:
+        """Return a list of blocked client MACs
+
+        Args:
+            timeout: per-request timeout in seconds; defaults to the session's.
+                Applies to each of the requests made while resolving the
+                blocklist policy, rather than to the whole operation.
+        """
+        acl = await self._query_l2_policy(R1_CLIENT_BLOCK_NAME, timeout=timeout)
         return [] if not acl else [
             L2Rule({"mac": mac}) for mac in acl["macAddresses"]
         ]
@@ -558,27 +585,35 @@ class RuckusOneAjaxApi(RuckusAjaxApi):
                 profile["l2AclPolicy"] = policy_map[id]
             profile.pop("l2AclPolicyName", None)
 
-    async def _query_l2_policy(self, name: str) -> AccessControlPolicyDict | None:
+    async def _query_l2_policy(
+        self, name: str, timeout: int | None = None
+    ) -> AccessControlPolicyDict | None:
         """Return the L2 policy with the given name, or None."""
-        policies = await self._query_l2_policies({"name": [name]})
+        policies = await self._query_l2_policies({"name": [name]}, timeout=timeout)
         return policies[0] if policies else None
 
-    async def _query_l2_policies(self, filters: dict | None = None) -> list[AccessControlPolicyDict]:
+    async def _query_l2_policies(
+        self, filters: dict | None = None, timeout: int | None = None
+    ) -> list[AccessControlPolicyDict]:
         """Query L2 policies, merging in MAC addresses fetched per policy."""
         query_params = { "filters": filters } if filters else {}
-        policies = await self.__session.query("l2AclPolicies/query", query_params)
+        policies = await self.__session.query("l2AclPolicies/query", query_params, timeout=timeout)
         if policies:
             # queried L2 policies don't include MAC addresses, so get these separately then merge
-            policies_with_macs = await asyncio.gather(*[self._get_l2_policy(policy["id"]) for policy in policies])
+            policies_with_macs = await asyncio.gather(*[
+                self._get_l2_policy(policy["id"], timeout=timeout) for policy in policies
+            ])
             policies = [
                 policy | policy_with_mac
                 for policy, policy_with_mac in zip(policies, policies_with_macs)
             ]
         return policies
 
-    async def _get_l2_policy(self, id: str) -> AccessControlPolicyDict:
+    async def _get_l2_policy(
+        self, id: str, timeout: int | None = None
+    ) -> AccessControlPolicyDict:
         """Return the L2 policy with the given id."""
-        return await self.__session.get(f"l2AclPolicies/{id}")
+        return await self.__session.get(f"l2AclPolicies/{id}", timeout=timeout)
 
     async def _do_update_l2_policy(self, policy: AccessControlPolicyDict) -> None:
         """Persist updates to the given L2 policy."""

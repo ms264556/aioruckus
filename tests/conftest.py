@@ -172,6 +172,15 @@ def aiohttp_context():
             repeat=True,
         )
         m.post(
+            re.compile(r"^https://192\.168\.0\.3:8443/wsg/api/public/v9_0/query/historicalclient"),
+            payload={
+                'list': [{'clientMac': 'f0:1d:ab:ad:d0:0d', 'ipAddress': '192.168.0.23', 'apMac': '8c:7a:15:3e:21:d0', 'hostname': 'MySmartPhone'}],
+                'hasMore': False,
+                'totalCount': 1,
+            },
+            repeat=True,
+        )
+        m.post(
             re.compile(r"^https://192\.168\.0\.3:8443/wsg/api/public/v9_0/query/wlan"),
             payload={
                 'list': [{'wlanId': 'wlan-1', 'name': 'MyWiFi'}],
