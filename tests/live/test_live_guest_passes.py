@@ -214,11 +214,11 @@ async def test_guest_pass_custom_key_roundtrip(live_guest_api):
 async def test_guest_passes_list_shape(live_guest_api):
     """Guest passes list to normalized dicts: key/name/ssid, no x-* leftovers.
 
-    ZoneDirector serves the pass key as ``x-key`` (with a plain ``key``
-    duplicate) and guest fields as ``full-name`` / ``wlan``, while Unleashed
-    uses ``name`` / ``ssid``; the parser must normalize both to the shared
-    ``Guest`` shape. The pass code is stored in the clear, so ``x-key`` keeps
-    its value and only loses the prefix.
+    ZoneDirector serves the pass key as ``x-key`` and guest fields as
+    ``full-name`` / ``wlan``, while Unleashed uses ``name`` / ``ssid``; the
+    parser must normalize both to the shared ``Guest`` shape. The pass code is
+    stored in the clear, so ``x-key`` keeps its value and only loses the
+    prefix.
     """
     async with live_guest_api() as api:
         guests = await api.get_guest_passes()

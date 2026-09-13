@@ -101,7 +101,7 @@ CONF_SYSTEM = (
 
 CONF_MESH_LIST = (
     '<ajax-response><response type="object" id="mesh-list.0.5"><mesh-list>'
-    '<mesh id="1" name="Mesh-Backbone" x-psk="obf" max-hops="3" psk="obf" />'
+    '<mesh id="1" name="Mesh-Backbone" x-psk="obf" max-hops="3" />'
     "</mesh-list></response></ajax-response>"
 )
 
@@ -124,7 +124,7 @@ def test_parse_conf_mesh_list():
     result = parse_ajax_response(CONF_MESH_LIST, Mesh)
     assert result["id"] == "1"
     assert result["name"] == "Mesh-Backbone"
-    assert result["psk"] == "obf"  # x-psk decrypted
+    assert result["psk"] == "nae"  # x-psk decrypted
     assert "x-psk" not in result
 
 
@@ -184,3 +184,30 @@ async def test_do_conf_raises_on_error_xmsg(create_ajax_session, set_ajax_result
                 "<ajax-request action='updobj' comp='acl-list' updater='blocked-clients'>"
                 "<acl id='1' /></ajax-request>"
             )
+
+
+def test_parse_conf_mesh_list_redacts_secrets():
+    """With redaction on, the encrypted x-psk is dropped, not decrypted.
+
+    A response only ever carries the encrypted form, so with redaction on
+    there is no plaintext key in the result at all.
+    """
+    result = parse_ajax_response(CONF_MESH_LIST, Mesh, redact_secrets=True)
+    assert result["id"] == "1"
+    assert result["name"] == "Mesh-Backbone"
+    assert result["max-hops"] == "3"
+    assert "psk" not in result            # never decrypted
+    assert "x-psk" not in result          # and the ciphertext is gone too
+    assert "obf" not in repr(result)
+
+
+def test_redaction_leaves_plain_values_alone():
+    """Redaction only drops x- values; ordinary attributes survive."""
+    result = parse_ajax_response(CONF_SYSTEM, SystemInfo, redact_secrets=True)
+    assert result["identity"]["name"] == "Ruckus-Unleashed"
+    assert result["sysinfo"]["serial"] == "162239000115"
+
+
+def test_redaction_defaults_off():
+    """Parsing without opting in still decrypts, for compatibility."""
+    assert parse_ajax_response(CONF_MESH_LIST, Mesh)["psk"] == "nae"

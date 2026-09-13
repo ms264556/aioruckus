@@ -210,10 +210,10 @@ async def test_parse_unleashed_shape():
 
 
 async def test_parse_zd_shape():
-    """ZD serves full-name/wlan + x-key plus a plain key duplicate."""
+    """ZD serves full-name/wlan + x-key; the prefix is dropped, value kept."""
     guest = _parse_shape(
         '<guest full-name="Test Pass Name" wlan="TestGuestPasses" '
-        'x-key="BVCIS-TBYBD" id="1" key="BVCIS-TBYBD" '
+        'x-key="BVCIS-TBYBD" id="1" '
         'create-time="1786788715" />'
     )
     assert guest["key"] == "BVCIS-TBYBD"

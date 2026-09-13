@@ -99,9 +99,18 @@ def validate_guest_key(key: str) -> str:
         return key
     raise ValueError(ERROR_GUEST_PASS_KEY_INVALID)
 
-def _process_ruckus_xml(path, key, value):
-    """xmltodict postprocessor: decrypt passphrases and normalize values."""
+def _process_ruckus_xml(path, key, value, redact_secrets: bool = False):
+    """xmltodict postprocessor: decrypt passphrases and normalize values.
+
+    With ``redact_secrets`` set, ``x-`` prefixed values are dropped rather
+    than decrypted.
+    """
     if key.startswith("x-"):
+        if redact_secrets:
+            # drop the value rather than decrypting it, so neither the
+            # ciphertext nor a plaintext equivalent is exposed. Returning a
+            # falsy entry is how xmltodict skips an attribute entirely.
+            return None
         # passphrases are obfuscated and stored with an x- prefix; strip the
         # prefix and decrypt. ``x-key`` is the exception: see _decrypt_value.
         return key[2:], _decrypt_value(key, value) if value else value

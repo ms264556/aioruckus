@@ -39,6 +39,22 @@ class AbcSession(ABC):
     ) -> None:
         """Initialize the session with no API attached yet."""
         self._api = None
+        self._redact_secrets = False
+
+    @property
+    def redact_secrets(self) -> bool:
+        """Whether encrypted values are dropped instead of decrypted.
+
+        When enabled, obfuscated attributes (``x-psk``, ``x-passphrase``, ...)
+        are removed from parsed responses rather than decrypted, so a caller
+        that only inspects the shape of a config never handles plaintext
+        secrets. Defaults to ``False``, i.e. decrypt as before.
+        """
+        return self._redact_secrets
+
+    @redact_secrets.setter
+    def redact_secrets(self, redact: bool) -> None:
+        self._redact_secrets = redact
 
     @property
     @abstractmethod

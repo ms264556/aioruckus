@@ -520,7 +520,9 @@ class RuckusConfigurationApi(ABC):
         the desired structure.
         """
         result_text = await self.session.get_conf_str(item, timeout)
-        return parse_ajax_response(result_text, target_type)
+        return parse_ajax_response(
+            result_text, target_type, self.session.redact_secrets
+        )
 
     @staticmethod
     def _normalize_conf_value(current_value: str, new_value: Any) -> str:

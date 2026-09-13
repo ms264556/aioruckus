@@ -65,8 +65,7 @@ def _parse_guest_list(xml: str) -> list[Guest]:
     This parses the raw response text rather than going through
     ``_process_ruckus_xml``, so it applies the same ``x-key`` -> ``key``
     rename itself: the pass code is stored in the clear, so only the prefix
-    is dropped. ZoneDirector additionally serves a plain ``key`` duplicate,
-    which is collapsed onto the single remaining field.
+    is dropped.
     """
     guests = []
     for guest in ET.fromstring(xml).findall(".//guest"):
@@ -80,8 +79,7 @@ def _parse_guest_list(xml: str) -> list[Guest]:
         else:
             item.pop("wlan", None)  # redundant duplicate of ssid
         if "x-key" in item:
-            # rename to key, mirroring _process_ruckus_xml; a plain ``key``
-            # duplicate (ZoneDirector serves both) is dropped by the rename
+            # rename to key, mirroring _process_ruckus_xml
             item["key"] = item.pop("x-key")
         guests.append(item)
     return guests
@@ -114,6 +112,14 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         """Initialize the API with the given AjaxSession."""
         super().__init__(session)
 
+    @property
+    def redact_secrets(self) -> bool:
+        """Whether encrypted values are dropped instead of decrypted.
+
+        Mirrors the owning session's setting, which is applied per request.
+        """
+        return self.session.redact_secrets
+
     async def login(self) -> RuckusAjaxApi:
         """Create an Unleashed/ZoneDirector HTTPS session and log in."""
         self.__session = await UnleashedSession(
@@ -121,6 +127,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
             self.session.username,
             self.session.password,
             self.session.websession,
+            redact_secrets=self.session.redact_secrets,
         ).login()
         return self
 
@@ -320,7 +327,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         """Return a list of guest passes"""
         ts = ruckus_timestamp()
         return _parse_guest_list(await self._conf_noparse(
-            f"<ajax-request action='getconf' DECRYPT_X='true' "
+            f"<ajax-request action='getconf' "
             f"updater='guest-list.{ts}' comp='guest-list'>"
             f"<guest self-service='!true'/></ajax-request>"
         ))
@@ -979,7 +986,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         the desired structure.
         """
         result_text = await self._cmdstat_noparse(data, timeout)
-        return parse_ajax_response(result_text, target_type)
+        return parse_ajax_response(result_text, target_type, self.redact_secrets)
 
     async def cmdstat_piecewise(
         self,
@@ -1022,7 +1029,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         the desired structure.
         """
         result_text = await self._conf_noparse(data, timeout)
-        return parse_ajax_response(result_text, target_type)
+        return parse_ajax_response(result_text, target_type, self.redact_secrets)
 
     async def _do_conf(
         self, data: str, timeout: int | None = None

@@ -30,6 +30,7 @@ class AjaxSession(AbcSession):
         username: str,
         password: str,
         auto_cleanup_websession=False,
+        redact_secrets: bool = False,
     ) -> None:
         """Initialize the session with connection parameters.
 
@@ -39,8 +40,11 @@ class AjaxSession(AbcSession):
             username: controller login username.
             password: controller login password.
             auto_cleanup_websession: close `websession` when the session is closed.
+            redact_secrets: drop encrypted values instead of decrypting them,
+                so plaintext secrets never reach the caller. Defaults to False.
         """
         super().__init__()
+        self.redact_secrets = redact_secrets
 
         self.websession = websession
         self.host = host
@@ -132,6 +136,18 @@ class AjaxSession(AbcSession):
                     await self.websession.close()
 
     @staticmethod
-    def async_create(host: str, username: str, password: str) -> AjaxSession:
-        """Create a default ClientSession & use this to create an AjaxSession instance"""
-        return AjaxSession(create_legacy_client_session(), host, username, password, auto_cleanup_websession=True)
+    def async_create(
+        host: str, username: str, password: str, redact_secrets: bool = False
+    ) -> AjaxSession:
+        """Create a default ClientSession & use this to create an AjaxSession instance
+
+        Args:
+            host: hostname or IP address of the Ruckus controller.
+            username: controller login username.
+            password: controller login password.
+            redact_secrets: drop encrypted values instead of decrypting them.
+        """
+        return AjaxSession(
+            create_legacy_client_session(), host, username, password,
+            auto_cleanup_websession=True, redact_secrets=redact_secrets,
+        )

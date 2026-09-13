@@ -257,11 +257,15 @@ def _apply_specs(instance: dict, specs: tuple[_FieldSpec, ...]) -> None:
 
 # --- Public API ---
 @overload
-def parse_ajax_response(xml: str, target_type: type[D]) -> D: ...
+def parse_ajax_response(
+    xml: str, target_type: type[D], redact_secrets: bool = False
+) -> D: ...
 
 
 @overload
-def parse_ajax_response(xml: str) -> dict | list[dict]: ...
+def parse_ajax_response(
+    xml: str, redact_secrets: bool = False
+) -> dict | list[dict]: ...
 
 
 def _unwrap_object_response(result: Any) -> Any:
@@ -293,16 +297,24 @@ def _unwrap_object_response(result: Any) -> Any:
 
 
 def parse_ajax_response(
-    xml: str, target_type: type[D] | None = None
+    xml: str, target_type: type[D] | None = None, redact_secrets: bool = False
 ) -> D | dict | list[dict]:
     """
     Main entry point. Parses raw XML string into JSON/Dicts,
     navigates the specific Ruckus API wrapper structure,
     and applies type-based fixes.
+
+    With ``redact_secrets`` set, obfuscated values (``x-psk`` and friends) are
+    dropped instead of decrypted.
     """
     # Parse XML string to dict, using custom processor for decryption/renaming
     result = xmltodict.parse(
-        xml, encoding="utf-8", attr_prefix="", postprocessor=_process_ruckus_xml
+        xml,
+        encoding="utf-8",
+        attr_prefix="",
+        postprocessor=lambda path, key, value: _process_ruckus_xml(
+            path, key, value, redact_secrets
+        ),
     )
 
     # Remove standard Ruckus API wrapper.

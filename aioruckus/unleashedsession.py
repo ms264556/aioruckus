@@ -53,6 +53,7 @@ class UnleashedSession:
         username: str,
         password: str,
         websession: aiohttp.ClientSession | None = None,
+        redact_secrets: bool = False,
     ) -> None:
         """Initialize the session with connection parameters.
 
@@ -62,12 +63,31 @@ class UnleashedSession:
             password: controller login password.
             websession: optional aiohttp client session; one is created
                 (and closed on logout) if not provided.
+            redact_secrets: drop encrypted values instead of decrypting them.
+                Useful when only the shape of a config matters, so plaintext
+                secrets never reach the caller. Defaults to ``False``.
         """
         self.host = host
         self.username = username
         self.password = password
         self.__client = websession or create_legacy_client_session()
         self.__auto_cleanup_websession = not websession
+        self.redact_secrets = redact_secrets
+
+    @property
+    def redact_secrets(self) -> bool:
+        """Whether encrypted values are dropped instead of decrypted.
+
+        When enabled, obfuscated attributes (``x-psk``, ``x-passphrase``, ...)
+        are removed from parsed responses rather than decrypted, so a caller
+        that only inspects the shape of a config never handles plaintext
+        secrets. This is per-session state, so sessions do not interfere.
+        """
+        return self.__redact_secrets
+
+    @redact_secrets.setter
+    def redact_secrets(self, redact: bool) -> None:
+        self.__redact_secrets = redact
 
     async def __aenter__(self) -> UnleashedSession:
         """Login and return this session for use as an async context manager."""
@@ -216,7 +236,7 @@ class UnleashedSession:
         """Return the relevant config xml, given a configuration key"""
         return await self._ajax_request(
             "_conf.jsp",
-            f"<ajax-request action='getconf' DECRYPT_X='true' "
+            f"<ajax-request action='getconf' "
             f"updater='{item.value}.0.5' comp='{item.value}'/>",
             timeout=timeout,
         )
@@ -364,7 +384,7 @@ class UnleashedSession:
                 request, full_document=False, short_empty_elements=True
             )
             result_text = await self._ajax_request("_cmdstat.jsp", request_xml, timeout=timeout)
-            page = parse_ajax_response(result_text)
+            page = parse_ajax_response(result_text, redact_secrets=self.redact_secrets)
 
             elements = page.get(element_type) if isinstance(page, dict) else None
             if elements is None:
