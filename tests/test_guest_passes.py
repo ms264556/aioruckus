@@ -131,7 +131,7 @@ async def test_get_guest_passes(create_ajax_session, aiohttp_context):
     assert len(guests) == 2
     first, second = guests
     assert first["key"] == "157971"
-    assert "x-key" not in first                  # renamed like other x-* attributes
+    assert "x-key" not in first
     assert first["name"] == "TestGuestname"
     assert first["ssid"] == "VoucherTesting"
     assert first["expire-time"] == "1787376471"
@@ -190,7 +190,7 @@ def _parse_shape(guest_xml: str) -> dict:
 
 
 async def test_parse_unleashed_shape():
-    """Unleashed serves name/ssid + x-key; key is renamed, no leftovers."""
+    """Unleashed serves name/ssid + x-key; the prefix is dropped, value kept."""
     guest = _parse_shape(
         '<guest shared-guestpass="true" share-number="2" created-by="tony" '
         'role-id="2147483647" countdown-by-issued="false" '
@@ -220,9 +220,20 @@ async def test_parse_zd_shape():
     assert guest["name"] == "Test Pass Name"
     assert guest["ssid"] == "TestGuestPasses"
     assert guest["id"] == "1"
-    assert "x-key" not in guest          # renamed, not kept
+    assert "x-key" not in guest          # renamed to key
     assert "full-name" not in guest      # renamed to name
     assert "wlan" not in guest           # renamed to ssid
+
+
+async def test_parse_bare_key_only_shape():
+    """A controller serving only a bare ``key`` keeps it as ``key``."""
+    guest = _parse_shape(
+        '<guest name="TestGuestname" ssid="VoucherTesting" '
+        'key="157971" id="1" create-time="1786771671" />'
+    )
+    assert guest["key"] == "157971"
+    assert "x-key" not in guest
+    assert guest["name"] == "TestGuestname"
 
 
 async def test_parse_both_name_and_full_name():

@@ -217,7 +217,8 @@ async def test_guest_passes_list_shape(live_guest_api):
     ZoneDirector serves the pass key as ``x-key`` (with a plain ``key``
     duplicate) and guest fields as ``full-name`` / ``wlan``, while Unleashed
     uses ``name`` / ``ssid``; the parser must normalize both to the shared
-    ``Guest`` shape.
+    ``Guest`` shape. The pass code is stored in the clear, so ``x-key`` keeps
+    its value and only loses the prefix.
     """
     async with live_guest_api() as api:
         guests = await api.get_guest_passes()
@@ -225,6 +226,6 @@ async def test_guest_passes_list_shape(live_guest_api):
         for guest in guests:
             assert isinstance(guest, dict)
             assert guest.get("key")
-            assert "x-key" not in guest          # renamed, not kept
+            assert "x-key" not in guest          # normalized to key by _parse_guest_list
             assert "full-name" not in guest      # renamed to name
             assert "wlan" not in guest           # renamed to ssid

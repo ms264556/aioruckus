@@ -102,11 +102,8 @@ def validate_guest_key(key: str) -> str:
 def _process_ruckus_xml(path, key, value):
     """xmltodict postprocessor: decrypt passphrases and normalize values."""
     if key.startswith("x-"):
-        if key == "x-key":
-            # guest-pass keys are plain values, not obfuscated passphrases;
-            # rename to key like other x-* attributes but keep the value verbatim
-            return key[2:], value
-        # passphrases are obfuscated and stored with an x- prefix; decrypt these
+        # passphrases are obfuscated and stored with an x- prefix; strip the
+        # prefix and decrypt. ``x-key`` is the exception: see _decrypt_value.
         return key[2:], _decrypt_value(key, value) if value else value
     if key == "apstamgr-stat" and not value:
         # return an empty array rather than None, for ease of use
@@ -135,7 +132,15 @@ def _process_ruckus_xml(path, key, value):
     return key, value
 
 def _decrypt_value(key: str, encrypted_string: str) -> str:
-    """Decrypt an obfuscated Ruckus value, falling back to the Caesar shift."""
+    """Decrypt an obfuscated Ruckus value, falling back to the Caesar shift.
+
+    ``x-key`` is the one ``x-`` prefixed value that is stored in the clear: it
+    is the guest passcode a user types in, not an obfuscated controller
+    secret. Shifting it would corrupt it (``157971`` -> ``046860``), so it is
+    returned verbatim and only the prefix is dropped.
+    """
+    if key == "x-key":
+        return encrypted_string
     if key == "x-password" and len(encrypted_string) >= 16 and len(encrypted_string) % 4 == 0 and all(c.isalnum() or c in '/+=' for c in encrypted_string):
         try:
             encrypted_bytes = base64.b64decode(encrypted_string, validate=True)

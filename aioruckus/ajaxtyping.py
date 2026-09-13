@@ -1081,9 +1081,9 @@ Dpsk = TypedDict('Dpsk', {
 }, total=False)
 
 Guest = TypedDict('Guest', {
-    # The pass key shown on vouchers. Unlike other ``x-`` prefixed
-    # attributes, ``x-key`` is a plain value (not an obfuscated passphrase),
-    # so the AJAX parser renames it to ``key`` but keeps the value verbatim.
+    # The pass key shown on vouchers. It is served as ``x-key`` but is a plain
+    # value rather than an obfuscated passphrase, so _decrypt_value passes it
+    # through and only the prefix is dropped.
     "key": Required[str],
     "id": str,
     "name": str,
