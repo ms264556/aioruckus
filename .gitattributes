@@ -1,0 +1,42 @@
+# Normalize line endings to LF in the repository, and check text files out
+# with LF on every platform. Without this, an editor or tool that writes CRLF
+# on checkout shows up as a whole-file diff on the next save, which is how
+# ruckusajaxapi.py and smartzonetyping.py ended up committed as CRLF.
+
+# Default: treat everything as text and normalize to LF in the repository.
+* text=auto eol=lf
+
+# Explicitly LF, so the intent is clear for source and config alike.
+*.py       text eol=lf
+*.pyi      text eol=lf
+*.toml     text eol=lf
+*.cfg      text eol=lf
+*.ini      text eol=lf
+*.json     text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.md       text eol=lf
+*.typed    text eol=lf
+*.txt      text eol=lf
+LICENSE    text eol=lf
+.gitignore text eol=lf
+
+# Shell scripts need LF, and a CR would break the shebang at exec time.
+*.sh       text eol=lf
+.githooks/pre-commit text eol=lf
+
+# Ruckus backup fixtures are binary (tar archives, sometimes encrypted).
+# -text stops Git from normalizing the bytes; no eol is set for binaries.
+*.bak      -text -eol
+
+# Common binary assets, should one be added later.
+*.png      -text -eol
+*.jpg      -text -eol
+*.jpeg     -text -eol
+*.gif      -text -eol
+*.ico      -text -eol
+*.pdf      -text -eol
+*.zip      -text -eol
+*.gz       -text -eol
+*.tar      -text -eol
+*.whl      -text -eol
