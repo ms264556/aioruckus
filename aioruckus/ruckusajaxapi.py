@@ -37,6 +37,7 @@ from .const import (
     ERROR_PASSPHRASE_MISSING,
     ERROR_PASSPHRASE_NAME,
     ERROR_SAEPASSPHRASE_MISSING,
+    ERROR_WPA_TEMPLATE,
     PatchNewAttributeMode,
     StatsLevel,
     SystemStat,
@@ -119,6 +120,11 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         Mirrors the owning session's setting, which is applied per request.
         """
         return self.session.redact_secrets
+
+    @property
+    def decrypts_secrets(self) -> bool:
+        """Whether obfuscated values still need decrypting, per the session."""
+        return self.session.decrypts_secrets
 
     async def login(self) -> RuckusAjaxApi:
         """Create an Unleashed/ZoneDirector HTTPS session and log in."""
@@ -327,7 +333,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         """Return a list of guest passes"""
         ts = ruckus_timestamp()
         return _parse_guest_list(await self._conf_noparse(
-            f"<ajax-request action='getconf' "
+            f"<ajax-request action='getconf' DECRYPT_X='true' "
             f"updater='guest-list.{ts}' comp='guest-list'>"
             f"<guest self-service='!true'/></ajax-request>"
         ))
@@ -651,7 +657,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
     ) -> None:
         """Clone a WLAN"""
         wlansvc = await self._get_default_wlan_template()
-        self._normalize_encryption(wlansvc, template)
+        await self._normalize_encryption(wlansvc, template)
         self._patch_template(wlansvc, template, PatchNewAttributeMode.ADD)
         if new_name is not None or new_ssid is not None:
             if new_name is None:
@@ -665,7 +671,7 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         """Edit a WLAN"""
         wlansvc = await self._get_wlan_template(name)
         if wlansvc:
-            self._normalize_encryption(wlansvc, patch)
+            await self._normalize_encryption(wlansvc, patch)
             self._patch_template(wlansvc, patch, patch_new_attributes)
             await self._update_wlan_template(wlansvc)
 
@@ -805,7 +811,25 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         wlansvc = root.find(f".//wlansvc[@name='{saxutils.escape(name)}']")
         return wlansvc
 
-    def _normalize_encryption(self, wlansvc: ET.Element, patch: dict):
+    async def _wpa_template(self) -> dict[str, str]:
+        """Return a blank ``<wpa>`` attribute set from the controller.
+
+        The standard-WLAN template is the authoritative shape for a WPA block,
+        so a WLAN with no ``<wpa>`` of its own is built from it rather than
+        from attributes hard-coded here that a firmware could change.
+
+        The template carries both ``x-passphrase`` and ``passphrase``: the
+        ``x-`` attribute is an input the controller expects, not merely an
+        output it generates.
+        """
+        assert self.__session is not None
+        xml = await self.__session.get_conf_str(ConfigItem.WLANSVC_STANDARD_TEMPLATE)
+        template = ET.fromstring(xml).find(".//wpa")
+        if template is None:
+            raise ValueError(ERROR_WPA_TEMPLATE)
+        return dict(template.attrib)
+
+    async def _normalize_encryption(self, wlansvc: ET.Element, patch: dict):
         """Apply encryption and passphrase changes from the patch to the template.
 
         Validates passphrases, updates the `encryption` attribute and rebuilds
@@ -824,18 +848,30 @@ class RuckusAjaxApi(RuckusConfigurationApi):
             wlansvc.set("encryption", new_encryption)
 
             wpa = wlansvc.find("wpa")
-            new_wpa = {"cipher": "aes", "dynamic-psk": "disabled"}
+            if wpa is not None:
+                # carry the whole block across: the controller requires several
+                # of these attributes, and the x- passphrases are inputs it
+                # expects rather than values it regenerates
+                new_wpa = dict(wpa.attrib)
+            else:
+                # a WLAN being switched away from "open" has no <wpa> to copy
+                new_wpa = await self._wpa_template()
 
             if new_encryption in (WlanEncryption.WPA2.value, WlanEncryption.WPA23_MIXED.value):
                 passphrase = wpa.get("passphrase") if wpa is not None else None
                 if not (patch_wpa and patch_wpa.get("passphrase")) and passphrase is None:
                     raise ValueError(ERROR_PASSPHRASE_MISSING)
-                new_wpa["passphrase"] = passphrase or "<passphrase>"
+                # a passphrase from the patch is applied by _patch_template
+                if passphrase is not None and not (patch_wpa and patch_wpa.get("passphrase")):
+                    new_wpa["passphrase"] = passphrase
             if new_encryption in (WlanEncryption.WPA3.value, WlanEncryption.WPA23_MIXED.value):
-                sae_passphrase = wpa.get("sae_passphrase") if wpa is not None else None
-                if not (patch_wpa and patch_wpa.get("sae_passphrase")) and sae_passphrase is None:
+                # 'sae-passphrase' is spelled with a hyphen on the wire and in
+                # a patch, unlike the underscore used by the Python keyword
+                sae_passphrase = wpa.get("sae-passphrase") if wpa is not None else None
+                if not (patch_wpa and patch_wpa.get("sae-passphrase")) and sae_passphrase is None:
                     raise ValueError(ERROR_SAEPASSPHRASE_MISSING)
-                new_wpa["sae-passphrase"] = sae_passphrase or "<passphrase>"
+                if sae_passphrase is not None and not (patch_wpa and patch_wpa.get("sae-passphrase")):
+                    new_wpa["sae-passphrase"] = sae_passphrase
 
             if wpa is not None:
                 wlansvc.remove(wpa)
@@ -986,7 +1022,9 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         the desired structure.
         """
         result_text = await self._cmdstat_noparse(data, timeout)
-        return parse_ajax_response(result_text, target_type, self.redact_secrets)
+        return parse_ajax_response(
+            result_text, target_type, self.redact_secrets, self.decrypts_secrets
+        )
 
     async def cmdstat_piecewise(
         self,
@@ -1029,7 +1067,9 @@ class RuckusAjaxApi(RuckusConfigurationApi):
         the desired structure.
         """
         result_text = await self._conf_noparse(data, timeout)
-        return parse_ajax_response(result_text, target_type, self.redact_secrets)
+        return parse_ajax_response(
+            result_text, target_type, self.redact_secrets, self.decrypts_secrets
+        )
 
     async def _do_conf(
         self, data: str, timeout: int | None = None

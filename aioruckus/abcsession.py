@@ -42,18 +42,36 @@ class AbcSession(ABC):
         self._redact_secrets = False
 
     @property
-    def redact_secrets(self) -> bool:
-        """Whether encrypted values are dropped instead of decrypted.
+    def decrypts_secrets(self) -> bool:
+        """Whether obfuscated values in responses still need decrypting.
 
-        When enabled, obfuscated attributes (``x-psk``, ``x-passphrase``, ...)
-        are removed from parsed responses rather than decrypted, so a caller
-        that only inspects the shape of a config never handles plaintext
-        secrets. Defaults to ``False``, i.e. decrypt as before.
+        A live controller asked to ``DECRYPT_X`` returns secrets already in the
+        clear, so they must be passed through rather than decrypted again. A
+        backup file always holds the obfuscated form and does need decrypting.
+        """
+        return True
+
+    @property
+    def redact_secrets(self) -> bool | str:
+        """How secret values are presented in parsed responses.
+
+        Secrets arrive as a pair of sibling attributes: the prefixed value
+        (``x-psk``) and the plaintext under the bare name (``psk``). This
+        setting decides what the caller sees:
+
+        * ``False`` (the default) exposes the value under the bare name only.
+        * ``True`` removes both spellings, so no key appears in the result.
+        * a string replaces the bare value with that placeholder, keeping the
+          field so its presence is still visible without revealing it.
+
+        To avoid receiving secrets at all, prefer asking
+        :meth:`get_system_info` for only the sections you need via
+        :class:`SystemStat`.
         """
         return self._redact_secrets
 
     @redact_secrets.setter
-    def redact_secrets(self, redact: bool) -> None:
+    def redact_secrets(self, redact: bool | str) -> None:
         self._redact_secrets = redact
 
     @property

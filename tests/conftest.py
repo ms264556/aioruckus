@@ -231,13 +231,13 @@ def create_ajax_session(aiohttp_context):
 def unleashed_callback_factory(child_count):
     def _callback(url, **kwargs):
         data: str = kwargs["data"]
-        if data == "<ajax-request action='getconf' updater='ap-list.0.5' comp='ap-list'/>":
+        if data == "<ajax-request action='getconf' DECRYPT_X='true' updater='ap-list.0.5' comp='ap-list'/>":
             _aps = [
                 '<ap mac="8c:7a:15:3e:21:d0" devname="AnR650" model="r650" serial="302139502811" version="200.14.6.1"></ap>',
                 '<ap mac="80:03:84:3f:88:d0" devname="My Second R650" model="r650" serial="502039500072" version="200.14.6.1"></ap>',
             ]
             content = f"<ap-list>{''.join(_aps[:child_count])}</ap-list>"
-        elif data == "<ajax-request action='getconf' updater='system.0.5' comp='system'/>":
+        elif data == "<ajax-request action='getconf' DECRYPT_X='true' updater='system.0.5' comp='system'/>":
             content = (
                 '<system><identity name="Ruckus-Unleashed" />'
                 '<sysinfo version="200.14.6.1 build 203" serial="212339000715" />'

@@ -99,21 +99,54 @@ def validate_guest_key(key: str) -> str:
         return key
     raise ValueError(ERROR_GUEST_PASS_KEY_INVALID)
 
-def _process_ruckus_xml(path, key, value, redact_secrets: bool = False):
+def _process_ruckus_xml(
+    path, key, value, redact_secrets: bool | str = False, decrypt_secrets: bool = True
+):
     """xmltodict postprocessor: decrypt passphrases and normalize values.
 
-    With ``redact_secrets`` set, ``x-`` prefixed values are dropped rather
-    than decrypted.
+    Secrets are handled in two steps, because the prefixed attribute and the
+    plaintext under the bare name are *siblings* within the same element, while
+    xmltodict hands the postprocessor one key at a time:
+
+    1. Each ``x-`` key is decrypted (or passed through, see
+       ``decrypt_secrets``) but **keeps its prefix**, so the prefixed keys are
+       still identifiable once the element's dict is complete.
+    2. When an element is finished, its ``x-`` children are enumerated and
+       resolved together with their unprefixed twins. This is the only point
+       at which both are visible, so it is where they must be handled as a pair.
+
+    ``redact_secrets`` selects the outcome of step 2:
+
+    * ``False`` (the default) moves the value to the unprefixed name, so
+      callers see ``psk`` rather than ``x-psk``.
+    * ``True`` removes both names, so no key of either spelling survives.
+    * a string replaces the unprefixed value with that placeholder, e.g.
+      ``"[redacted]"``, keeping the field in place without revealing it.
+
+    ``decrypt_secrets`` says whether the values are obfuscated on the wire.
+    A controller asked to ``DECRYPT_X`` returns them already in the clear, so
+    they must not be decrypted again; a backup file holds the obfuscated form.
     """
+    # --- step 1: decrypt in place, keeping the prefixed name ---
     if key.startswith("x-"):
-        if redact_secrets:
-            # drop the value rather than decrypting it, so neither the
-            # ciphertext nor a plaintext equivalent is exposed. Returning a
-            # falsy entry is how xmltodict skips an attribute entirely.
-            return None
-        # passphrases are obfuscated and stored with an x- prefix; strip the
-        # prefix and decrypt. ``x-key`` is the exception: see _decrypt_value.
-        return key[2:], _decrypt_value(key, value) if value else value
+        if value and decrypt_secrets:
+            return key, _decrypt_value(key, value)
+        return key, value
+
+    # --- step 2: the element is complete, resolve its x- children ---
+    if isinstance(value, dict):
+        for prefixed in [k for k in value if isinstance(k, str) and k.startswith("x-")]:
+            name = prefixed[2:]
+            plaintext = value.pop(prefixed, None)
+            if redact_secrets is True:
+                # remove the bare name too: it holds the same secret, so
+                # dropping only the prefixed key would leave it in the result
+                value.pop(name, None)
+            elif isinstance(redact_secrets, str):
+                value[name] = redact_secrets
+            else:
+                value[name] = plaintext
+
     if key == "apstamgr-stat" and not value:
         # return an empty array rather than None, for ease of use
         return key, []
@@ -143,10 +176,9 @@ def _process_ruckus_xml(path, key, value, redact_secrets: bool = False):
 def _decrypt_value(key: str, encrypted_string: str) -> str:
     """Decrypt an obfuscated Ruckus value, falling back to the Caesar shift.
 
-    ``x-key`` is the one ``x-`` prefixed value that is stored in the clear: it
-    is the guest passcode a user types in, not an obfuscated controller
-    secret. Shifting it would corrupt it (``157971`` -> ``046860``), so it is
-    returned verbatim and only the prefix is dropped.
+    ``x-key`` is the exception among the ``x-`` prefixed values: it is the
+    guest passcode a user types in, stored in the clear, so it is returned
+    verbatim rather than shifted.
     """
     if key == "x-key":
         return encrypted_string

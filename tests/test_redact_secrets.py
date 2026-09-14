@@ -5,9 +5,10 @@ a config can avoid ever handling plaintext secrets. These tests cover both the
 constructor and the settable property, and check that sessions do not leak the
 setting into one another.
 
-They also pin that requests no longer ask the controller to decrypt for us:
-``getconf`` carries no ``DECRYPT_X``, so aioruckus is always the one deciding
-whether an obfuscated value is decrypted or dropped.
+They also pin that ``getconf`` carries ``DECRYPT_X='true'``. That flag is what
+makes the controller include its ``x-`` secret attributes at all; without it
+they are omitted from the response, so decryption and redaction both depend on
+it being sent.
 """
 
 from __future__ import annotations
@@ -124,12 +125,13 @@ async def test_unredacted_getconf_decrypts(create_ajax_session, set_ajax_results
         assert not [k for k in mesh if k.startswith("x-")]
 
 
-async def test_getconf_does_not_ask_controller_to_decrypt(create_ajax_session, record_ajax_requests):
-    """Decryption is our responsibility, so getconf carries no DECRYPT_X.
+async def test_getconf_requests_the_secret_fields(create_ajax_session, record_ajax_requests):
+    """getconf carries DECRYPT_X, which is what makes the x- fields appear.
 
-    The controller has a DECRYPT_X flag that makes it return plaintext. We ask
-    for the obfuscated form instead and decrypt (or drop) it ourselves, so the
-    same response can be handled either way locally.
+    The flag is not an obfuscation toggle: without it the controller omits the
+    x- secret attributes entirely, and with it they are included (see
+    tests/live for the wire-level evidence). Redaction and decryption both
+    depend on receiving them, so the flag must stay.
     """
     async with create_ajax_session() as session:
         calls = record_ajax_requests()
@@ -141,16 +143,20 @@ async def test_getconf_does_not_ask_controller_to_decrypt(create_ajax_session, r
             pass
 
     assert calls, "no request was issued"
-    for call in calls:
-        data = call.get("data") or ""
-        if isinstance(data, str) and "getconf" in data:
-            assert "DECRYPT_X" not in data, f"asked the controller to decrypt: {data}"
+    getconfs = [c for c in calls
+                if isinstance(c.get("data"), str) and "getconf" in c["data"]]
+    assert getconfs, "no getconf request was issued"
+    for call in getconfs:
+        assert "DECRYPT_X='true'" in call["data"], (
+            f"getconf omitted DECRYPT_X, so no x- secret fields would be "
+            f"returned: {call['data']}"
+        )
 
 
-async def test_guest_pass_list_does_not_ask_controller_to_decrypt(
+async def test_guest_pass_list_requests_the_secret_fields(
     create_ajax_session, record_ajax_requests
 ):
-    """The guest-list getconf also leaves decryption to us."""
+    """The guest-list getconf also asks for the x- fields."""
     async with create_ajax_session() as session:
         calls = record_ajax_requests()
         try:
@@ -159,7 +165,8 @@ async def test_guest_pass_list_does_not_ask_controller_to_decrypt(
             pass
 
     assert calls, "no request was issued"
-    for call in calls:
-        data = call.get("data") or ""
-        if isinstance(data, str) and "guest-list" in data:
-            assert "DECRYPT_X" not in data, f"asked the controller to decrypt: {data}"
+    getconfs = [c for c in calls
+                if isinstance(c.get("data"), str) and "guest-list" in c["data"]]
+    assert getconfs, "no guest-list request was issued"
+    for call in getconfs:
+        assert "DECRYPT_X='true'" in call["data"], f"missing DECRYPT_X: {call['data']}"

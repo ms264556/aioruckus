@@ -6,6 +6,13 @@ describes the desired structure, and ``parse_ajax_response`` recursively
 restructures the parsed XML to match it: single XML list items are wrapped
 into lists, empty lists are fixed up, and lists are trimmed using the
 ``num-<key>`` metadata the controller emits.
+
+The TypedDict also drives scalar types. Ruckus serves every XML attribute as
+text, so a field declared ``int`` or ``float`` is converted on a best-effort
+basis, letting callers do arithmetic without coercing strings themselves.
+Values the controller cannot report (``""``, ``N/A``) do not convert and are
+left as the string that was sent, rather than being turned into a misleading
+number.
 """
 
 from __future__ import annotations
@@ -57,6 +64,9 @@ class _FieldSpec(NamedTuple):
     key_name: str
     target_type: type
     is_list: bool
+    # Scalar conversion to apply to the field's value, when the TypedDict
+    # declares a numeric type. None means "leave the value alone".
+    coerce: type | None = None
 
 
 class _Plan(NamedTuple):
@@ -71,6 +81,36 @@ class _Plan(NamedTuple):
 def _is_typeddict_like(hint: Any) -> bool:
     """Checks if a type is a TypedDict (or a schema we've generated from a Union of TypedDicts)."""
     return is_typeddict(hint) or getattr(hint, "_is_generated_schema", False)
+
+
+def _coerce_scalar(value: Any, target: type) -> Any:
+    """Best-effort convert a scalar to ``target``, leaving it alone on failure.
+
+    Ruckus serves every XML attribute as text, including counters and signal
+    levels, so a TypedDict declaring ``int`` or ``float`` means "convert this,
+    it really is a number". Conversion is best-effort: the controllers emit
+    placeholders such as ``""`` or ``N/A`` for values they cannot report, and
+    anything that does not convert is returned unchanged.
+
+    ``bool`` is deliberately not converted: the controllers spell booleans
+    ``true``/``false``/``yes``/``no``, none of which ``bool()`` understands,
+    and ``bool("false")`` is ``True``.
+    """
+    if target is bool or value is None:
+        return value
+    # Already the right shape (int is acceptable where float is declared)
+    if isinstance(value, target) and not isinstance(value, bool):
+        return value
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        # int() rejects "1.5" and "nan"; float() accepts both, so a float
+        # target is the more permissive of the two.
+        if target is int:
+            return int(value)
+        return float(value)
+    except (TypeError, ValueError):
+        return value
 
 
 def _extract_type_info(hint: Any) -> _TypeInfo:
@@ -170,6 +210,18 @@ def _compile_plan(target_type: type) -> _Plan:
                     is_list=info.is_list,
                 )
             )
+        elif field_hint in (int, float):
+            # Scalar we should try to convert; the controllers serve every
+            # attribute as text, so the TypedDict is the only signal that a
+            # field is really numeric.
+            specs.append(
+                _FieldSpec(
+                    key_name=field_name,
+                    target_type=field_hint,
+                    is_list=False,
+                    coerce=field_hint,
+                )
+            )
 
     return _Plan(
         is_list=root_info.is_list,
@@ -222,6 +274,11 @@ def _apply_specs(instance: dict, specs: tuple[_FieldSpec, ...]) -> None:
 
         val = instance[spec.key_name]
 
+        if spec.coerce is not None and not spec.is_list:
+            if val is not None:
+                instance[spec.key_name] = _coerce_scalar(val, spec.coerce)
+            continue
+
         # Handle None values
         if val is None:
             if spec.is_list:
@@ -258,13 +315,14 @@ def _apply_specs(instance: dict, specs: tuple[_FieldSpec, ...]) -> None:
 # --- Public API ---
 @overload
 def parse_ajax_response(
-    xml: str, target_type: type[D], redact_secrets: bool = False
+    xml: str, target_type: type[D], redact_secrets: bool | str = False,
+    decrypt_secrets: bool = True
 ) -> D: ...
 
 
 @overload
 def parse_ajax_response(
-    xml: str, redact_secrets: bool = False
+    xml: str, redact_secrets: bool | str = False, decrypt_secrets: bool = True
 ) -> dict | list[dict]: ...
 
 
@@ -297,15 +355,21 @@ def _unwrap_object_response(result: Any) -> Any:
 
 
 def parse_ajax_response(
-    xml: str, target_type: type[D] | None = None, redact_secrets: bool = False
+    xml: str, target_type: type[D] | None = None, redact_secrets: bool | str = False,
+    decrypt_secrets: bool = True
 ) -> D | dict | list[dict]:
     """
     Main entry point. Parses raw XML string into JSON/Dicts,
     navigates the specific Ruckus API wrapper structure,
     and applies type-based fixes.
 
-    With ``redact_secrets`` set, obfuscated values (``x-psk`` and friends) are
-    dropped instead of decrypted.
+    ``redact_secrets`` controls obfuscated values (``x-psk`` and friends):
+    ``False`` moves them to the unprefixed name, ``True`` drops both spellings,
+    and a string replaces the value with that placeholder.
+
+    ``decrypt_secrets`` says whether those values are obfuscated on the wire.
+    A controller asked to ``DECRYPT_X`` returns them already in the clear, so
+    they must be passed through; a backup file holds the obfuscated form.
     """
     # Parse XML string to dict, using custom processor for decryption/renaming
     result = xmltodict.parse(
@@ -313,7 +377,7 @@ def parse_ajax_response(
         encoding="utf-8",
         attr_prefix="",
         postprocessor=lambda path, key, value: _process_ruckus_xml(
-            path, key, value, redact_secrets
+            path, key, value, redact_secrets, decrypt_secrets
         ),
     )
 

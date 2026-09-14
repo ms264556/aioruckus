@@ -9,7 +9,15 @@ Unleashed / ZoneDirector controllers.
 
 import pytest
 
-from aioruckus.ajaxtyping import DocmdResponse, Mesh, SystemInfo, TimeInfo
+from aioruckus.ajaxtyping import (
+    ApStats,
+    Client,
+    DocmdResponse,
+    Mesh,
+    SystemInfo,
+    TimeInfo,
+    Vap,
+)
 from aioruckus.const import SystemStat
 from aioruckus.unleashedtojson import parse_ajax_response
 
@@ -211,3 +219,328 @@ def test_redaction_leaves_plain_values_alone():
 def test_redaction_defaults_off():
     """Parsing without opting in still decrypts, for compatibility."""
     assert parse_ajax_response(CONF_MESH_LIST, Mesh)["psk"] == "nae"
+
+
+# ---------------------------------------------------------------------------
+# Numeric conversion driven by the TypedDict
+# ---------------------------------------------------------------------------
+def test_numeric_attributes_are_converted():
+    """Fields declared int/float are converted from the wire's strings."""
+    result = parse_ajax_response(CONF_MESH_LIST, Mesh)
+    # max-hops is declared str, so it must stay a string
+    assert isinstance(result["max-hops"], str)
+
+
+def test_numeric_conversion_is_best_effort():
+    """A value the controller cannot report is left as the string it sent.
+
+    Controllers emit placeholders like "" or N/A for unavailable values;
+    inventing a number for those would misreport the device's state.
+    """
+    xml = (
+        '<ajax-response><response type="object" id="ap-list.0.5"><ap-list>'
+        '<ap mac="8c:7a:15:3e:21:d0" devname="A" num-sta="12" cpu_util="N/A" '
+        'uptime="" />'
+        "</ap-list></response></ajax-response>"
+    )
+    aps = parse_ajax_response(xml, list[ApStats])
+    ap = aps[0]
+    assert ap["num-sta"] == 12                    # convertible
+    assert ap["cpu_util"] == "N/A"                # placeholder preserved
+    assert ap["uptime"] == ""                     # empty preserved, not 0
+    assert isinstance(ap["cpu_util"], str)
+
+
+def test_numeric_conversion_of_nested_lists():
+    """The conversion reaches fields inside nested list TypedDicts."""
+    xml = (
+        '<ajax-response><response type="object" id="ap-list.0.5"><ap-list>'
+        '<ap mac="8c:7a:15:3e:21:d0" devname="A" num-sta="3">'
+        '<radio channel="6" tx-power="-3.5" radio-type="ng" />'
+        '<radio channel="36" tx-power="17" radio-type="na" />'
+        "</ap>"
+        "</ap-list></response></ajax-response>"
+    )
+    aps = parse_ajax_response(xml, list[ApStats])
+    radios = aps[0]["radio"]
+    assert [r["channel"] for r in radios] == [6, 36]
+    assert all(isinstance(r["channel"], int) for r in radios)
+    assert [r["tx-power"] for r in radios] == [-3.5, 17.0]
+    assert all(isinstance(r["tx-power"], float) for r in radios)
+    # a str-typed field alongside them is untouched
+    assert all(isinstance(r["radio-type"], str) for r in radios)
+
+
+def test_numeric_conversion_applies_to_vap_stats():
+    """VAP counters convert, while identifiers stay strings."""
+    xml = (
+        '<ajax-response><response type="object" id="stamgr.0.5"><apstamgr-stat>'
+        '<vap bssid="8c:7a:15:3e:21:d8" ssid="MyWiFi" num-sta="4" '
+        'tx-bytes="1024" rx-drop-pkt="2" vap-up="1" />'
+        "</apstamgr-stat></response></ajax-response>"
+    )
+    vaps = parse_ajax_response(xml, list[Vap])
+    vap = vaps[0]
+    assert vap["num-sta"] == 4
+    assert vap["tx-bytes"] == 1024.0
+    assert vap["rx-drop-pkt"] == 2
+    assert vap["bssid"] == "8c:7a:15:3e:21:d8"     # identifier stays str
+    assert vap["ssid"] == "MyWiFi"
+
+
+def test_redact_secrets_placeholder_keeps_the_key():
+    """A string placeholder replaces the value but keeps the field.
+
+    Lets a caller iterate a config's shape without handling the secret.
+    """
+    result = parse_ajax_response(CONF_MESH_LIST, Mesh, redact_secrets="[redacted]")
+    assert result["psk"] == "[redacted]"
+    assert "x-psk" not in result          # the ciphertext never appears
+    assert result["name"] == "Mesh-Backbone"
+    assert result["max-hops"] == "3"      # other fields untouched
+
+
+def test_redact_secrets_bool_still_drops_the_key():
+    """True keeps removing the field entirely, so keys vanish."""
+    result = parse_ajax_response(CONF_MESH_LIST, Mesh, redact_secrets=True)
+    assert "psk" not in result
+
+
+def test_redact_secrets_false_still_decrypts():
+    """The default is unchanged: obfuscated values are decrypted."""
+    assert parse_ajax_response(CONF_MESH_LIST, Mesh, redact_secrets=False)["psk"] == "nae"
+
+
+def test_client_session_counters_are_numeric():
+    """The per-session client counters convert, so callers can do arithmetic."""
+    xml = (
+        '<ajax-response><response type="object" id="stamgr.0.5"><apstamgr-stat>'
+        '<client mac="f0:1d:ab:ad:d0:0d" ap="8c:7a:15:3e:21:d0" ip="192.168.0.23" '
+        'hostname="MySmartPhone" total-retries="7" total-rx-crc-errs="3" '
+        'tx-drop-data="1" total-rx-bytes="2048" first-assoc="1786771671" />'
+        "</apstamgr-stat></response></ajax-response>"
+    )
+    client = parse_ajax_response(xml, list[Client])[0]
+    assert client["total-retries"] == 7.0
+    assert client["total-rx-crc-errs"] == 3.0
+    assert client["tx-drop-data"] == 1.0
+    assert client["total-rx-bytes"] == 2048.0
+    assert client["first-assoc"] == 1786771671.0
+    # identifiers are unaffected
+    assert client["mac"] == "f0:1d:ab:ad:d0:0d"
+    assert client["hostname"] == "MySmartPhone"
+
+
+# ---------------------------------------------------------------------------
+# Paired x-/bare secrets
+# ---------------------------------------------------------------------------
+# A controller asked for DECRYPT_X returns each secret twice: under the x-
+# prefixed name and under the plain one, with the same value. Both must be
+# handled together, since redacting only the prefixed key would leave the
+# plaintext sibling in the result.
+PAIRED_MESH = (
+    '<ajax-response><response type="object" id="mesh-list.0.5"><mesh-list>'
+    '<mesh id="1" name="Mesh-Backbone" x-psk="MeshSecret1" psk="MeshSecret1" '
+    'max-hops="3" /></mesh-list></response></ajax-response>'
+)
+
+
+def test_redaction_removes_the_unprefixed_twin_too():
+    """Both spellings are removed, so neither name carries the secret."""
+    result = parse_ajax_response(
+        PAIRED_MESH, Mesh, redact_secrets=True, decrypt_secrets=False
+    )
+    assert "psk" not in result
+    assert "x-psk" not in result
+    assert "MeshSecret1" not in repr(result)
+    # unrelated fields are untouched
+    assert result["max-hops"] == "3"
+    assert result["name"] == "Mesh-Backbone"
+
+
+def test_placeholder_redaction_replaces_the_unprefixed_twin():
+    """A placeholder lands on the unprefixed name and the ciphertext goes."""
+    result = parse_ajax_response(
+        PAIRED_MESH, Mesh, redact_secrets="[redacted]", decrypt_secrets=False
+    )
+    assert result["psk"] == "[redacted]"
+    assert "x-psk" not in result
+    assert "MeshSecret1" not in repr(result)
+
+
+def test_unprefixed_values_are_kept_when_not_redacting():
+    """Without redaction the plaintext is exposed under the bare name."""
+    result = parse_ajax_response(PAIRED_MESH, Mesh, decrypt_secrets=False)
+    assert result["psk"] == "MeshSecret1"
+    assert "x-psk" not in result
+
+
+def test_backup_path_decrypts_instead_of_passing_through():
+    """A backup holds the obfuscated form, so it must still be decrypted.
+
+    'xmboqbtt234' is the Caesar shift of 'wlanpass123', as served in a real
+    backup and returned decrypted by a real controller.
+    """
+    xml = (
+        '<ajax-response><response type="object" id="wlansvc-list.0.5">'
+        '<wlansvc-list><wlansvc name="W" ssid="S" x-passphrase="xmboqbtt234" />'
+        '</wlansvc-list></response></ajax-response>'
+    )
+    result = parse_ajax_response(xml, dict, decrypt_secrets=True)
+    assert result["passphrase"] == "wlanpass123"
+    assert "x-passphrase" not in result
+
+
+def test_live_path_does_not_redecrypt_already_plain_values():
+    """Live values arrive in the clear; decrypting again would corrupt them.
+
+    'wlanpass123' would become 'uj_ln_qq/01' if the shift were applied twice.
+    """
+    xml = (
+        '<ajax-response><response type="object" id="wlansvc-list.0.5">'
+        '<wlansvc-list><wlansvc name="W" ssid="S" x-passphrase="wlanpass123" />'
+        '</wlansvc-list></response></ajax-response>'
+    )
+    result = parse_ajax_response(xml, dict, decrypt_secrets=False)
+    assert result["passphrase"] == "wlanpass123"
+
+
+# ---------------------------------------------------------------------------
+# _normalize_encryption: changing a WLAN's encryption mode
+# ---------------------------------------------------------------------------
+def _wlan_element(encryption, wpa_attrs=None):
+    """Build a <wlansvc> element shaped like the controller's."""
+    import xml.etree.ElementTree as ET
+    wlansvc = ET.Element("wlansvc", {"name": "W", "encryption": encryption})
+    if wpa_attrs is not None:
+        ET.SubElement(wlansvc, "wpa", wpa_attrs)
+    return wlansvc
+
+
+class _FakeSlot:
+    """Stand-in for the session, serving the controller's WLAN template."""
+
+    # mirrors what a real controller returns for wlansvc-standard-template
+    TEMPLATE = (
+        '<ajax-response><response type="object" id="wlansvc-standard-template">'
+        '<wlansvc name="default-standard-wlan" encryption="none"><wpa cipher="aes" '
+        'x-passphrase="" x-sae-passphrase="" dynamic-psk="disabled" '
+        'dynamic-psk-len="62" dpsk-type="friendly" expire="0" start-point="first-use" '
+        'limit-dpsk="disabled" limit-dpsk-val="1" shared-dpsk="disabled" '
+        'shared-dpsk-num="2" passphrase="" sae-passphrase="" /></wlansvc>'
+        '</response></ajax-response>'
+    )
+
+    async def get_conf_str(self, item, timeout=None):
+        return self.TEMPLATE
+
+
+def _normalizer():
+    """A RuckusAjaxApi whose session serves the WLAN template.
+
+    _normalize_encryption is async because it may fetch the template when a WLAN
+    has no <wpa> block to copy (switching away from "open").
+    """
+    from aioruckus.ruckusajaxapi import RuckusAjaxApi
+    api = RuckusAjaxApi.__new__(RuckusAjaxApi)
+    api._RuckusAjaxApi__session = _FakeSlot()
+    return api
+
+
+def _full_wpa(**overrides):
+    attrs = {
+        "cipher": "aes", "dynamic-psk": "disabled", "dynamic-psk-len": "62",
+        "dpsk-type": "friendly", "expire": "0", "start-point": "first-use",
+        "limit-dpsk": "disabled", "limit-dpsk-val": "1",
+        "shared-dpsk": "disabled", "shared-dpsk-num": "2",
+        "passphrase": "wlanpass123", "sae-passphrase": "wlanpass123",
+    }
+    attrs.update(overrides)
+    return attrs
+
+
+@pytest.mark.asyncio
+async def test_encryption_change_preserves_required_wpa_attributes():
+    """The rebuilt <wpa> retains the attributes the controller requires."""
+    api = _normalizer()
+    wlansvc = _wlan_element("wpa23-mixed", _full_wpa())
+    await api._normalize_encryption(wlansvc, {"encryption": "wpa3"})
+
+    wpa = wlansvc.find("wpa")
+    assert wpa is not None
+    assert wpa.get("dynamic-psk-len") == "62"
+    assert wpa.get("dpsk-type") == "friendly"
+    assert wpa.get("expire") == "0"
+    assert wpa.get("limit-dpsk") == "disabled"
+
+
+@pytest.mark.asyncio
+async def test_encryption_change_preserves_the_sae_passphrase():
+    """An existing SAE passphrase is carried across an encryption change."""
+    api = _normalizer()
+    wlansvc = _wlan_element("wpa2", _full_wpa())
+    await api._normalize_encryption(wlansvc, {"encryption": "wpa3"})
+
+    wpa = wlansvc.find("wpa")
+    assert wpa.get("sae-passphrase") == "wlanpass123"
+    assert wpa.get("passphrase") == "wlanpass123"
+
+
+@pytest.mark.asyncio
+async def test_encryption_change_preserves_x_passphrase_attributes():
+    """The x- passphrase attributes are inputs the controller expects.
+
+    Dropping them stopped the stored value round-tripping: the controller
+    returns x-passphrase only while it holds one, so a rebuild that discarded
+    it left the WLAN with no ciphertext at all.
+    """
+    api = _normalizer()
+    attrs = _full_wpa(**{"x-passphrase": "xmboqbtt234", "x-sae-passphrase": "xmboqbtt234"})
+    wlansvc = _wlan_element("wpa23-mixed", attrs)
+    await api._normalize_encryption(wlansvc, {"encryption": "wpa3"})
+
+    wpa = wlansvc.find("wpa")
+    assert wpa.get("x-passphrase") == "xmboqbtt234"
+    assert wpa.get("x-sae-passphrase") == "xmboqbtt234"
+
+
+@pytest.mark.asyncio
+async def test_switching_from_open_supplies_wpa_defaults():
+    """An open WLAN gaining WPA2 (no <wpa> to copy) gets the template's shape.
+
+    ``_normalize_encryption`` runs before ``_patch_template``, so the patch
+    passphrase is not yet on the element here and only the attributes this
+    function is responsible for are asserted.
+    """
+    api = _normalizer()
+    wlansvc = _wlan_element("none", None)
+    await api._normalize_encryption(
+        wlansvc, {"encryption": "wpa2", "wpa": {"passphrase": "wlanpass123"}}
+    )
+
+    wpa = wlansvc.find("wpa")
+    assert wpa is not None
+    assert wpa.get("dynamic-psk-len") == "62"
+    assert wpa.get("dpsk-type") == "friendly"
+    assert wpa.get("cipher") == "aes"
+
+
+@pytest.mark.asyncio
+async def test_missing_passphrases_still_raise():
+    """The guard rails survive: an open WLAN cannot gain WPA2 without a
+    passphrase, nor WPA3 without an SAE one."""
+    from aioruckus.const import ERROR_PASSPHRASE_MISSING, ERROR_SAEPASSPHRASE_MISSING
+    api = _normalizer()
+    with pytest.raises(ValueError, match=ERROR_PASSPHRASE_MISSING):
+        await api._normalize_encryption(_wlan_element("none", None), {"encryption": "wpa2"})
+    with pytest.raises(ValueError, match=ERROR_SAEPASSPHRASE_MISSING):
+        await api._normalize_encryption(_wlan_element("none", None), {"encryption": "wpa3"})
+
+
+@pytest.mark.asyncio
+async def test_switching_to_open_removes_the_wpa_element():
+    """Open WLANs carry no <wpa>."""
+    api = _normalizer()
+    wlansvc = _wlan_element("wpa2", _full_wpa())
+    await api._normalize_encryption(wlansvc, {"encryption": "none"})
+    assert wlansvc.find("wpa") is None

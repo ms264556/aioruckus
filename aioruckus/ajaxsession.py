@@ -30,7 +30,7 @@ class AjaxSession(AbcSession):
         username: str,
         password: str,
         auto_cleanup_websession=False,
-        redact_secrets: bool = False,
+        redact_secrets: bool | str = False,
     ) -> None:
         """Initialize the session with connection parameters.
 
@@ -40,8 +40,9 @@ class AjaxSession(AbcSession):
             username: controller login username.
             password: controller login password.
             auto_cleanup_websession: close `websession` when the session is closed.
-            redact_secrets: drop encrypted values instead of decrypting them,
-                so plaintext secrets never reach the caller. Defaults to False.
+            redact_secrets: what to do with encrypted values. ``False``
+                (default) decrypts them, ``True`` drops them, and a string
+                replaces each with that placeholder.
         """
         super().__init__()
         self.redact_secrets = redact_secrets
@@ -69,6 +70,16 @@ class AjaxSession(AbcSession):
     async def __aexit__(self, *exc: Any) -> None:
         """Close the session when leaving the async context manager."""
         await self.close()
+
+    @property
+    @override
+    def decrypts_secrets(self) -> bool:
+        """Live controllers return secrets already decrypted.
+
+        ``getconf`` is always sent with ``DECRYPT_X``, so the values arrive in
+        the clear; decrypting again would corrupt them.
+        """
+        return False
 
     @property
     @override
@@ -137,7 +148,7 @@ class AjaxSession(AbcSession):
 
     @staticmethod
     def async_create(
-        host: str, username: str, password: str, redact_secrets: bool = False
+        host: str, username: str, password: str, redact_secrets: bool | str = False
     ) -> AjaxSession:
         """Create a default ClientSession & use this to create an AjaxSession instance
 
@@ -145,7 +156,9 @@ class AjaxSession(AbcSession):
             host: hostname or IP address of the Ruckus controller.
             username: controller login username.
             password: controller login password.
-            redact_secrets: drop encrypted values instead of decrypting them.
+            redact_secrets: what to do with encrypted values. ``False``
+                (default) decrypts them, ``True`` drops them, and a string
+                replaces each with that placeholder.
         """
         return AjaxSession(
             create_legacy_client_session(), host, username, password,

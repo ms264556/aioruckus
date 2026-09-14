@@ -521,7 +521,8 @@ class RuckusConfigurationApi(ABC):
         """
         result_text = await self.session.get_conf_str(item, timeout)
         return parse_ajax_response(
-            result_text, target_type, self.session.redact_secrets
+            result_text, target_type, self.session.redact_secrets,
+            self.session.decrypts_secrets,
         )
 
     @staticmethod
