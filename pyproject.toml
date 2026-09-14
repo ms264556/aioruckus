@@ -78,13 +78,12 @@ load-plugins = ["pylint_pytest"]
 source = "vcs"
 
 [tool.hatch.version.raw-options]
-# The local version segment (the +g<commit> suffix) is deliberately kept.
-# Without it a dev version is only the commit distance to the last tag, so a
-# rewrite that preserves the commit count re-derives a version already on the
-# index, and TestPyPI rejects a duplicate filename permanently. With the
-# suffix, each commit is its own version and a build per push always uploads.
-# Only TestPyPI accepts local versions; PyPI rejects them, which is why the
-# PyPI job runs on tags, where describe yields a clean version with no suffix.
+# Local versions (+g<commit>) must not be used: neither TestPyPI nor PyPI
+# accepts them, both answering 400 "The use of local versions ... is not
+# allowed". That leaves only the core version, which for an untagged commit is
+# the commit distance to the last tag - so a build must be skipped when that
+# version already exists, which --check-url does. See the Publish workflow.
+local_scheme = "no-local-version"
 
 [tool.hatch.build.hooks.vcs]
 version-file = "aioruckus/_version.py"
