@@ -133,3 +133,38 @@ dmypy.json
 
 .fleet/
 aioruckus/_version.py
+
+# Ruckus device backups. A raw dump carries live WLAN passphrases, admin
+# credentials, client MACs and operator IPs, so *.bak is ignored wherever it
+# is downloaded to. The fixtures the backup tests run against are redacted,
+# and tests/live/backups/ is the only place a .bak may be committed from.
+*.bak
+!tests/live/backups/*.bak
+
+# Unredacted captures, kept out of the fixtures directory above so that
+# whitelist cannot stage them. These are the source material for rebuilding
+# those fixtures; never commit anything from here.
+tests/live/raw-backups/
+
+# AI agents
+.aider*
+.atomcode.md
+.atomcode/
+.claude/
+.codex/
+.continue/
+.cursor/
+.cursorrules
+.gemini/
+.github/copilot-instructions.md
+.mcp.json
+.reasonix/
+.windsurf/
+AGENTS.md
+ATOMCODE.md
+CLAUDE.md
+CLAUDE.local.md
+GEMINI.md
+REASONIX.md
+opencode.json
+reasonix.toml
