@@ -31,7 +31,9 @@ jobs:
         run: uv build
 
       - name: Publish to TestPyPI
-        run: uv publish --publish-url https://test.pypi.org/legacy/
+        # --check-url makes this idempotent: TestPyPI errors on a file it
+        # already holds, so a re-run or re-tagged push would otherwise fail.
+        run: uv publish --publish-url https://test.pypi.org/legacy/ --check-url https://test.pypi.org/simple/
 
   publish-pypi:
     # When a new version is tagged
@@ -58,4 +60,6 @@ jobs:
         run: uv build
 
       - name: Publish to PyPI
+        # PyPI accepts a re-upload of identical files, so this needs no
+        # duplicate handling; --check-url is harmless but adds a round trip.
         run: uv publish
