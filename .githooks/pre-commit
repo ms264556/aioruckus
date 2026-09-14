@@ -1,5 +1,6 @@
 #!/bin/sh
-# Pre-commit gate: fail the commit unless the test suite passes.
+# Pre-commit gate: fail the commit unless the test suite passes on every
+# interpreter that has a virtualenv checked out.
 #
 # Runs the unit suite (live tests are deselected by default in
 # pyproject.toml) plus a live-test collection check, which catches import or
@@ -7,50 +8,72 @@
 # hardware. Collection does not execute test bodies, so a live test that is
 # merely wrong at runtime is not caught here — that still needs hardware.
 #
-# Set AIORUCKUS_HOOK_PYTHON to override the interpreter, otherwise the first
-# of .venv/bin/python, python3 or python that exists is used.
+# The versioned venvs below are checked in order, so a commit is exercised
+# against the oldest supported Python and the newest two. Venvs that are not
+# present are skipped, so a fresh clone carrying only .venv still works.
+# Set AIORUCKUS_HOOK_PYTHON to pin the gate to a single interpreter.
 
 set -e
 
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
+interpreters=""
 if [ -n "$AIORUCKUS_HOOK_PYTHON" ]; then
-    python=$AIORUCKUS_HOOK_PYTHON
+    interpreters=$AIORUCKUS_HOOK_PYTHON
 else
-    python=""
-    for candidate in .venv/bin/python python3 python; do
-        if [ -x "$candidate" ] || command -v "$candidate" >/dev/null 2>&1; then
-            python=$candidate
-            break
+    for candidate in .venv39/bin/python .venv314/bin/python .venv315/bin/python; do
+        if [ -x "$candidate" ]; then
+            interpreters="$interpreters $candidate"
         fi
     done
+    # No versioned venvs: fall back to the default one, then to PATH.
+    if [ -z "$interpreters" ]; then
+        for candidate in .venv/bin/python python3 python; do
+            if [ -x "$candidate" ] || command -v "$candidate" >/dev/null 2>&1; then
+                interpreters=$candidate
+                break
+            fi
+        done
+    fi
 fi
 
-if [ -z "$python" ]; then
+if [ -z "$interpreters" ]; then
     echo "pre-commit: no python interpreter found; skipping tests." >&2
     exit 0
 fi
 
-if ! "$python" -c "import pytest" >/dev/null 2>&1; then
-    echo "pre-commit: pytest not available in $python; skipping tests." >&2
-    echo "pre-commit: install with 'pip install -e . --group dev' or set AIORUCKUS_HOOK_PYTHON." >&2
+status=0
+ran=0
+for python in $interpreters; do
+    if ! "$python" -c "import pytest" >/dev/null 2>&1; then
+        echo "pre-commit: pytest not available in $python; skipping." >&2
+        echo "pre-commit: install with 'pip install -e . --group dev' or set AIORUCKUS_HOOK_PYTHON." >&2
+        continue
+    fi
+    ran=$((ran + 1))
+    version=$("$python" -V 2>&1)
+    echo "pre-commit: running test suite ($version via $python)..."
+    if ! "$python" -m pytest -q; then
+        echo "pre-commit: tests failed under $version." >&2
+        status=1
+    fi
+    if ! "$python" -m pytest -m live --collect-only -q >/dev/null; then
+        echo "pre-commit: live tests failed to collect under $version." >&2
+        status=1
+    fi
+done
+
+if [ "$ran" -eq 0 ]; then
+    echo "pre-commit: no interpreter had pytest available; skipping tests." >&2
     exit 0
 fi
 
-echo "pre-commit: running test suite ($python)..."
-if ! "$python" -m pytest -q; then
+if [ "$status" -ne 0 ]; then
     echo "" >&2
     echo "pre-commit: tests failed - commit aborted." >&2
     echo "pre-commit: fix the failures, or 'git commit --no-verify' to bypass." >&2
     exit 1
 fi
 
-echo "pre-commit: checking live tests still collect..."
-if ! "$python" -m pytest -m live --collect-only -q >/dev/null; then
-    echo "" >&2
-    echo "pre-commit: live tests failed to collect - commit aborted." >&2
-    exit 1
-fi
-
-echo "pre-commit: OK"
+echo "pre-commit: OK ($ran interpreter(s))"

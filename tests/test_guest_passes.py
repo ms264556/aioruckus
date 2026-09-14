@@ -195,7 +195,7 @@ async def test_parse_unleashed_shape():
         '<guest shared-guestpass="true" share-number="2" created-by="tony" '
         'role-id="2147483647" countdown-by-issued="false" '
         'create-time="1786771671" valid-time="61200" start-time="" '
-        'expire-time="1787376471" email="guesttest@tonyrielly.com" '
+        'expire-time="1787376471" email="guesttest@example.com" '
         'phone-number="12345678" reauth-interval-unit="min" '
         'remarks="test remark" name="TestGuestname" x-key="157971" '
         'id="1" ssid="VoucherTesting" reauth-enabled="false" />'
@@ -322,7 +322,7 @@ async def test_do_add_guest_pass(create_ajax_session, aiohttp_context):
             remarks="test remark",
             shared=True,
             share_number=2,
-            email="guesttest@tonyrielly.com",
+            email="guesttest@example.com",
             phone_number="12345678",
         )
 
